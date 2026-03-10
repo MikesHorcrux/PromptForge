@@ -1,108 +1,133 @@
 # PromptForge
 
-PromptForge is a CLI-first prompt evaluation agent. It loads versioned prompt
-packs, runs them against fixed JSONL datasets, scores outputs with deterministic
-rules plus rubric judging, and emits reproducible artifacts that make prompt
-regressions obvious.
+_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
 
-It supports three runtime auth/provider paths:
+PromptForge is a CLI-first prompt evaluation harness for teams that version prompts,
+run repeatable tests, and need evidence for why one prompt beat another.
 
-- `openai`: direct OpenAI API with `OPENAI_API_KEY`
-- `codex`: user signs into Codex locally and PromptForge runs through `codex exec`
-- `openrouter`: OpenAI-compatible routing with `OPENROUTER_API_KEY`
+It is built for:
 
-## What it does
+- Prompt engineers comparing prompt pack revisions against a fixed dataset
+- Operators who need a predictable local workflow and durable artifacts
+- Technical and non-technical stakeholders who need a readable report, not raw model transcripts
 
-- Loads a prompt pack made of `system.md`, `user_template.md`, and
-  `variables.schema.json`
-- Validates dataset cases before any API call
-- Executes prompt versions with local response caching
-- Scores outputs with hard fail rules and weighted rubric traits
-- Compares prompt versions and selects a winner with evidence
-- Writes `outputs.jsonl`, `scores.json`, `comparison.json`, `report.md`, and
-  `run.lock.json` for every run
+What it does:
 
-## Quickstart
+- Loads a versioned prompt pack from `prompt_packs/<version>/`
+- Loads a JSONL evaluation dataset from `datasets/`
+- Runs each case through one of three provider paths: `openai`, `openrouter`, or `codex`
+- Scores outputs with deterministic rule checks plus a rubric judge
+- Compares prompt versions case-by-case and overall
+- Writes reproducible artifacts under `var/runs/<run_id>/`
+
+What it does not do:
+
+- It is not a web service or background worker
+- It does not mutate datasets
+- It does not include a human approval workflow
+- It does not guarantee provider-side retention or privacy beyond the request flags it sends
+
+## Why teams use it
+
+- Faster prompt iteration with cached reruns and reproducible lockfiles
+- Clear operator workflow: `setup`, `doctor`, `run`, `compare`, `report`
+- Evidence-rich outputs for reviews, release decisions, and regressions
+- Minimal local footprint: filesystem artifacts plus a single SQLite cache
+
+```mermaid
+flowchart LR
+  Author["Prompt author"] --> Setup["pf setup"]
+  Setup --> Doctor["pf doctor"]
+  Doctor --> Compare["pf compare --a v1 --b v2 --dataset datasets/core.jsonl"]
+  Compare --> Artifacts["var/runs/<run_id>/"]
+  Artifacts --> Report["report.md"]
+  Artifacts --> Scores["scores.json"]
+  Artifacts --> Outputs["outputs.jsonl"]
+```
+
+## 5-minute quickstart
+
+Prerequisites:
+
+- Python 3.11+
+- One auth path:
+  - OpenAI API key, or
+  - OpenRouter API key, or
+  - A working Codex CLI login
+
+Install and run:
 
 ```bash
 make bootstrap
-cp .env.example .env
+. .venv/bin/activate
+pf setup
 pf doctor
 pf compare --a v1 --b v2 --dataset datasets/core.jsonl
 ```
 
-## CLI
+What the wizard does:
+
+- Creates or updates `.env` from `.env.example`
+- Lets you choose `openai`, `openrouter`, or `codex`
+- Stores provider defaults such as `PF_PROVIDER`, `OPENAI_BASE_MODEL`, and `OPENAI_JUDGE_MODEL`
+- Prompts for API keys where needed
+- Checks `codex login status` and can launch `codex login`
+
+## Core workflow
+
+1. Create or update a prompt pack in `prompt_packs/<version>/`.
+2. Add or update dataset cases in `datasets/*.jsonl`.
+3. Run `pf compare` or `pf run`.
+4. Inspect `report.md`, `scores.json`, `comparison.json`, and `run.lock.json`.
+5. Keep the winning prompt pack version and repeat.
+
+## Key commands
+
+| Command | Purpose | Typical use |
+|---|---|---|
+| `pf setup` | Interactive onboarding for auth and defaults | First-time setup, provider changes |
+| `pf doctor` | Validate auth, model access, prompt pack, dataset, and workspace dirs | Preflight check before a run |
+| `pf run --prompt v1 --dataset datasets/core.jsonl` | Evaluate one prompt pack | Score a single version |
+| `pf compare --a v1 --b v2 --dataset datasets/core.jsonl` | Compare two prompt packs | Promotion or regression checks |
+| `pf report --run <run_id>` | Print or rebuild a report for an existing run | Share or regenerate human-readable output |
+
+Common provider examples:
 
 ```bash
-pf run --prompt v1 --dataset datasets/core.jsonl
-pf run --prompt v1 --dataset datasets/core.jsonl --provider codex
+pf run --prompt v1 --dataset datasets/core.jsonl --provider openai --model gpt-5.4
 pf run --prompt v1 --dataset datasets/core.jsonl --provider openrouter --model openai/gpt-5
-pf compare --a v1 --b v2 --dataset datasets/core.jsonl
-pf report --run <run_id>
-pf doctor
+pf run --prompt v1 --dataset datasets/core.jsonl --provider codex --judge-provider codex --model gpt-5-mini
 ```
 
-## Repo layout
+## Repository layout
 
 ```text
-prompt_packs/
-  v1/
-  v2/
-datasets/
-  core.jsonl
-docs/
-  architecture.md
-  eval-philosophy.md
-src/promptforge/
-  agents/
-  core/
-  datasets/
-  prompts/
-  runtime/
-  scoring/
-  scripts/
-tests/
-var/
+prompt_packs/                 Versioned prompt packs
+datasets/                     JSONL evaluation datasets
+src/promptforge/              CLI, runtime, scoring, providers, and setup flow
+tests/                        Unit and integration-style tests
+docs/                         Architecture, operations, security, ADRs, and reference docs
+var/                          Generated logs, cache, and run artifacts
 ```
 
-## Prompt pack format
+## Where to go next
 
-Each prompt pack lives in `prompt_packs/<version>/` and contains:
+- [Documentation index](docs/index.md)
+- [Architecture](docs/architecture.md)
+- [Runtime and pipeline](docs/runtime-and-pipeline.md)
+- [CLI reference](docs/cli-reference.md)
+- [Operations](docs/operations.md)
+- [Security and safety](docs/security-and-safety.md)
+- [Testing and quality](docs/testing-and-quality.md)
+- [FAQ](docs/faq.md)
+- [Architecture Decision Records](docs/adr/README.md)
+- [Eval philosophy](docs/eval-philosophy.md)
 
-- `manifest.yaml`
-- `system.md`
-- `user_template.md`
-- `variables.schema.json`
+## Source-of-truth modules
 
-## Dataset format
-
-Each JSONL line must include:
-
-```json
-{
-  "id": "case-001",
-  "input": {"customer_issue": "Refund request"},
-  "context": "Optional extra context",
-  "rubric_targets": {
-    "instruction_adherence": "Answer every requested part.",
-    "clarity_conciseness": "Stay under 180 words."
-  },
-  "format_expectations": {
-    "output_format": "markdown",
-    "required_sections": ["Summary", "Answer", "Next Steps"]
-  }
-}
-```
-
-## Notes
-
-- PromptForge never mutates datasets in place.
-- `seed` is tracked in the lockfile and cache key for reproducibility, but the
-  current Responses API request shape does not expose a `seed` parameter.
-- Some models accept `temperature`; PromptForge records when a requested value
-  cannot be applied cleanly.
-- `codex` auth is a separate provider path. It does not reuse the Python OpenAI
-  SDK directly; PromptForge invokes `codex exec` and relies on the user’s Codex
-  login.
-- `openrouter` runs through the OpenAI-compatible client path using
-  `OPENROUTER_BASE_URL`.
+- CLI and command parsing: [`src/promptforge/cli.py`](src/promptforge/cli.py)
+- Setup wizard: [`src/promptforge/setup_wizard.py`](src/promptforge/setup_wizard.py)
+- Runtime orchestration: [`src/promptforge/runtime/run_service.py`](src/promptforge/runtime/run_service.py)
+- Provider backends: [`src/promptforge/runtime/gateway.py`](src/promptforge/runtime/gateway.py)
+- Data models: [`src/promptforge/core/models.py`](src/promptforge/core/models.py)
+- Prompt and dataset loading: [`src/promptforge/prompts/loader.py`](src/promptforge/prompts/loader.py), [`src/promptforge/datasets/loader.py`](src/promptforge/datasets/loader.py)

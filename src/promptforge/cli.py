@@ -17,6 +17,8 @@ from promptforge.runtime.artifacts import ArtifactStore
 from promptforge.runtime.gateway import build_gateway
 from promptforge.runtime.report_service import render_comparison_report, render_evaluation_report
 from promptforge.runtime.run_service import EvaluationService
+from promptforge.setup_wizard import run_setup_wizard
+from promptforge.ui import console, print_banner, print_compare_summary, print_doctor_results, print_info, print_report_location, print_run_summary
 from promptforge.core.models import ComparisonArtifact, RunManifest, ScoresArtifact
 
 
@@ -49,12 +51,53 @@ def _build_provider_service(args: argparse.Namespace) -> EvaluationService:
 
 
 async def _run_command(args: argparse.Namespace) -> int:
+    print_banner("Trial by Runefire")
     scoring_config = _load_scoring_config(args.scoring_config)
     run_config = _build_run_config(args)
     judge_provider = _resolve_judge_provider(args)
-    manifest = await _build_provider_service(args).run(
-        RunRequest(
-            prompt_version=args.prompt,
+    print_info(
+        f"Stoking the forge for prompt `{args.prompt}` on dataset `{args.dataset}`."
+    )
+    with console.status("[ember]Binding runes and evaluating cases...[/ember]"):
+        manifest = await _build_provider_service(args).run(
+            RunRequest(
+                prompt_version=args.prompt,
+                model=args.model,
+                dataset_path=args.dataset,
+                run_config=run_config,
+                scoring_config=scoring_config,
+                provider=args.provider,
+                judge_provider=judge_provider,
+            )
+        )
+    scores = ScoresArtifact.model_validate(
+        ArtifactStore().read_json(Path(manifest.output_dir) / "scores.json")
+    )
+    print_run_summary(
+        run_id=manifest.run_id,
+        prompt_version=args.prompt,
+        provider=args.provider,
+        judge_provider=judge_provider,
+        average_effective_score=scores.aggregate.average_effective_score,
+        hard_fail_count=scores.aggregate.hard_fail_count,
+        total_cases=scores.aggregate.total_cases,
+        artifact_dir=manifest.output_dir,
+    )
+    return 0
+
+
+async def _compare_command(args: argparse.Namespace) -> int:
+    print_banner("Duel of Sigils")
+    scoring_config = _load_scoring_config(args.scoring_config)
+    run_config = _build_run_config(args)
+    judge_provider = _resolve_judge_provider(args)
+    print_info(
+        f"Setting `{args.a}` against `{args.b}` on dataset `{args.dataset}`."
+    )
+    with console.status("[ember]Weighing rival sigils in the forge...[/ember]"):
+        manifest = await _build_provider_service(args).compare(
+            prompt_a=args.a,
+            prompt_b=args.b,
             model=args.model,
             dataset_path=args.dataset,
             run_config=run_config,
@@ -62,31 +105,33 @@ async def _run_command(args: argparse.Namespace) -> int:
             provider=args.provider,
             judge_provider=judge_provider,
         )
+    comparison = ComparisonArtifact.model_validate(
+        ArtifactStore().read_json(Path(manifest.output_dir) / "comparison.json")
     )
-    print(f"run_id={manifest.run_id}")
-    print(f"artifacts={manifest.output_dir}")
-    return 0
-
-
-async def _compare_command(args: argparse.Namespace) -> int:
-    scoring_config = _load_scoring_config(args.scoring_config)
-    run_config = _build_run_config(args)
-    manifest = await _build_provider_service(args).compare(
+    winner = {
+        "a": args.a,
+        "b": args.b,
+        "tie": "tie",
+    }[comparison.aggregate.overall_winner]
+    print_compare_summary(
+        run_id=manifest.run_id,
         prompt_a=args.a,
         prompt_b=args.b,
-        model=args.model,
-        dataset_path=args.dataset,
-        run_config=run_config,
-        scoring_config=scoring_config,
         provider=args.provider,
-        judge_provider=_resolve_judge_provider(args),
+        judge_provider=judge_provider,
+        winner=winner,
+        confidence=comparison.aggregate.confidence,
+        wins_a=comparison.aggregate.case_wins_a,
+        wins_b=comparison.aggregate.case_wins_b,
+        ties=comparison.aggregate.ties,
+        artifact_dir=manifest.output_dir,
     )
-    print(f"run_id={manifest.run_id}")
-    print(f"artifacts={manifest.output_dir}")
     return 0
 
 
 def _report_command(args: argparse.Namespace) -> int:
+    if not args.print:
+        print_banner("Chronicle Reading")
     store = ArtifactStore()
     run_dir = store.resolve_run_dir(args.run)
     manifest = RunManifest.model_validate(store.read_json(run_dir / "run.json"))
@@ -102,11 +147,12 @@ def _report_command(args: argparse.Namespace) -> int:
     if args.print:
         print(report_path.read_text(encoding="utf-8"))
     else:
-        print(str(report_path))
+        print_report_location(report_path, printed=False)
     return 0
 
 
 async def _doctor_command(args: argparse.Namespace) -> int:
+    print_banner("Ward Inspection")
     checks: list[tuple[str, bool, str]] = []
     python_ok = sys.version_info >= (3, 11)
     checks.append(("python", python_ok, platform.python_version()))
@@ -160,14 +206,26 @@ async def _doctor_command(args: argparse.Namespace) -> int:
     else:
         checks.append(("model_access", False, f"skipped because {auth_detail}"))
 
-    for name, ok, detail in checks:
-        status = "OK" if ok else "FAIL"
-        print(f"{status:<5} {name:<15} {detail}")
+    hint = None
+    if not all(ok for _, ok, _ in checks):
+        hint = "Run `pf setup` to attune auth, keys, and default providers."
+    print_doctor_results(checks, hint=hint)
     return 0 if all(ok for _, ok, _ in checks) else 1
 
 
+def _setup_command(args: argparse.Namespace) -> int:
+    return run_setup_wizard(
+        env_path=Path(args.env_file),
+        example_env_path=Path(args.example_env_file),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="pf", description="PromptForge prompt evaluation CLI")
+    parser = argparse.ArgumentParser(
+        prog="pf",
+        description="PromptForge prompt evaluation CLI",
+        epilog="Runehall commands: setup, doctor, run, compare, report",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     def add_shared_args(subparser: argparse.ArgumentParser) -> None:
@@ -197,6 +255,10 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--run", required=True, help="Run id")
     report_parser.add_argument("--print", action=argparse.BooleanOptionalAction, default=False)
 
+    setup_parser = subparsers.add_parser("setup", help="Interactive onboarding for auth and provider defaults")
+    setup_parser.add_argument("--env-file", default=".env", help="Environment file to create or update")
+    setup_parser.add_argument("--example-env-file", default=".env.example", help="Template environment file")
+
     doctor_parser = subparsers.add_parser("doctor", help="Check environment and model access")
     doctor_parser.add_argument("--prompt", default="v1", help="Prompt pack to validate")
     doctor_parser.add_argument("--dataset", default="datasets/core.jsonl", help="Dataset to validate")
@@ -224,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_compare_command(args))
     if args.command == "report":
         return _report_command(args)
+    if args.command == "setup":
+        return _setup_command(args)
     if args.command == "doctor":
         return asyncio.run(_doctor_command(args))
     parser.error(f"Unknown command: {args.command}")

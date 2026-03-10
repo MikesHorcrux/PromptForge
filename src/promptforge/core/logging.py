@@ -49,12 +49,12 @@ def configure_logging() -> logging.Logger:
     handler = logging.FileHandler(log_path)
     handler.setFormatter(JsonFormatter())
     logger.addHandler(handler)
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(stream_handler)
+    if settings.stdout_logs:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(stream_handler)
     return logger
 
 
 def log_event(logger: logging.Logger, message: str, **payload: Any) -> None:
     logger.info(message, extra={"payload": payload})
-

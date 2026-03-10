@@ -28,6 +28,7 @@ class Settings(BaseModel):
     default_retries: int = int(os.getenv("PF_DEFAULT_RETRIES", "2"))
     default_concurrency: int = int(os.getenv("PF_DEFAULT_CONCURRENCY", "8"))
     default_failure_threshold: float = float(os.getenv("PF_DEFAULT_FAILURE_THRESHOLD", "0.40"))
+    stdout_logs: bool = os.getenv("PF_STDOUT_LOGS", "false").lower() == "true"
     codex_bin: str = os.getenv("PF_CODEX_BIN", "codex")
     codex_profile: str | None = os.getenv("PF_CODEX_PROFILE") or None
     codex_reasoning_effort: str = os.getenv("PF_CODEX_REASONING_EFFORT", "medium")
