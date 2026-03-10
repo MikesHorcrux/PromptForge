@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "customer_name",
+    "customer_issue",
+    "goal",
+    "tone",
+    "policy_snippet"
+  ],
+  "properties": {
+    "customer_name": {"type": "string"},
+    "customer_issue": {"type": "string"},
+    "goal": {"type": "string"},
+    "tone": {"type": "string"},
+    "policy_snippet": {"type": "string"}
+  }
+}
+

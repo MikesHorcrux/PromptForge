@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import yaml
+from jinja2 import Environment, StrictUndefined
+from jsonschema import Draft202012Validator
+
+from promptforge.core.config import settings
+from promptforge.core.hashing import sha256_model
+from promptforge.core.models import DatasetCase, PromptPack, PromptPackManifest
+
+
+PROMPT_FILES = ("manifest.yaml", "system.md", "user_template.md", "variables.schema.json")
+
+
+def resolve_prompt_pack_path(prompt_version: str | Path) -> Path:
+    path = Path(prompt_version)
+    if path.exists():
+        return path
+    candidate = settings.prompt_pack_dir / prompt_version
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(f"Prompt pack not found: {prompt_version}")
+
+
+def load_prompt_pack(prompt_version: str | Path) -> PromptPack:
+    root = resolve_prompt_pack_path(prompt_version)
+    missing = [name for name in PROMPT_FILES if not (root / name).exists()]
+    if missing:
+        raise FileNotFoundError(f"Prompt pack {root} is missing files: {', '.join(missing)}")
+
+    manifest = PromptPackManifest.model_validate(
+        yaml.safe_load((root / "manifest.yaml").read_text(encoding="utf-8"))
+    )
+    system_prompt = (root / "system.md").read_text(encoding="utf-8").strip()
+    user_template = (root / "user_template.md").read_text(encoding="utf-8").strip()
+    variables_schema = json.loads((root / "variables.schema.json").read_text(encoding="utf-8"))
+    content_hash = sha256_model(
+        {
+            "manifest": manifest.model_dump(mode="json", by_alias=True),
+            "system": system_prompt,
+            "user_template": user_template,
+            "schema": variables_schema,
+        }
+    )
+    return PromptPack(
+        root=root,
+        manifest=manifest,
+        system_prompt=system_prompt,
+        user_template=user_template,
+        variables_schema=variables_schema,
+        content_hash=content_hash,
+    )
+
+
+def validate_case_inputs(prompt_pack: PromptPack, case: DatasetCase) -> None:
+    Draft202012Validator(prompt_pack.variables_schema).validate(case.input)
+
+
+def render_user_prompt(prompt_pack: PromptPack, case: DatasetCase) -> str:
+    validate_case_inputs(prompt_pack, case)
+    env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
+    template = env.from_string(prompt_pack.user_template)
+    payload: dict[str, Any] = dict(case.input)
+    payload["context"] = case.context
+    payload["case_id"] = case.id
+    payload["rubric_targets"] = case.rubric_targets
+    payload["format_expectations"] = case.format_expectations.model_dump(mode="json")
+    return template.render(**payload).strip()
+

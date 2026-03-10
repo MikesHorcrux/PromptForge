@@ -1,0 +1,16 @@
+apiVersion: 1
+name: prompt_judge
+displayName: PromptForge Judge
+owner: platform
+purpose: >
+  Score prompt outputs against explicit rubric targets and format contracts.
+entrypoint: promptforge.agents.prompt_judge.agent:load_judge_instructions
+default_model: gpt-5-mini
+risk_tier: low
+tools: []
+output_schema: RubricJudgeOutput
+tags:
+  - eval
+  - judge
+  - structured-output
+

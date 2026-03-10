@@ -1,0 +1,10 @@
+apiVersion: 1
+version: v1
+name: Support Reply Baseline
+description: Baseline support reply prompt with light formatting guidance.
+output_format: markdown
+required_sections:
+  - Summary
+  - Answer
+  - Next Steps
+
