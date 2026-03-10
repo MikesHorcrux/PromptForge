@@ -53,6 +53,13 @@ def print_section(title: str, description: str | None = None) -> None:
         console.print(f"[dimmed]{description}[/dimmed]")
 
 
+def _truncate(value: str, limit: int = 72) -> str:
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
 def print_key_value_block(title: str, rows: Sequence[tuple[str, str]]) -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="gold", justify="right", no_wrap=True)
@@ -161,3 +168,149 @@ def print_success(message: str) -> None:
 
 def print_warning(message: str) -> None:
     console.print(f"[warning]{message}[/warning]")
+
+
+def print_text_panel(title: str, content: str) -> None:
+    console.print(Panel(content.strip() or "(empty)", title=title, border_style="steel"))
+
+
+def print_agent_result(*, summary: str, changed_files: Sequence[str], diff_preview: str) -> None:
+    rows = [
+        ("Changed", ", ".join(changed_files) if changed_files else "--"),
+        ("Summary", summary or "--"),
+    ]
+    print_key_value_block("Agent Edit", rows)
+    if diff_preview:
+        print_text_panel("Prompt Diff", diff_preview)
+
+
+def print_forge_status(rows: Sequence[tuple[str, str]]) -> None:
+    print_key_value_block("Forge Status", rows)
+
+
+def print_forge_revision_summary(revision) -> None:
+    benchmark = revision.benchmark
+    full_eval = revision.full_evaluation
+    rows = [
+        ("Revision", revision.revision_id),
+        ("Source", revision.source),
+        ("Note", revision.note or "--"),
+        ("Changed", ", ".join(revision.changed_files) if revision.changed_files else "--"),
+    ]
+    if benchmark:
+        rows.extend(
+            [
+                ("Bench score", f"{benchmark.mean_effective_score:.2f} / 5.00"),
+                ("Pass rate", f"{benchmark.pass_rate:.1%}"),
+                ("Hard fail", f"{benchmark.mean_hard_fail_rate:.1%}"),
+                ("Repeats", str(benchmark.repeats)),
+            ]
+        )
+    if revision.benchmark_vs_baseline:
+        rows.append(
+            (
+                "Vs baseline",
+                f"{revision.benchmark_vs_baseline.mean_score_delta:+.2f} "
+                f"({revision.benchmark_vs_baseline.winner})",
+            )
+        )
+        rows.append(
+            (
+                "Improved cases",
+                ", ".join(revision.benchmark_vs_baseline.top_improved_cases) or "--",
+            )
+        )
+        rows.append(
+            (
+                "Regressed cases",
+                ", ".join(revision.benchmark_vs_baseline.top_regressed_cases) or "--",
+            )
+        )
+    if revision.benchmark_vs_previous:
+        rows.append(
+            (
+                "Vs previous",
+                f"{revision.benchmark_vs_previous.mean_score_delta:+.2f} "
+                f"({revision.benchmark_vs_previous.winner})",
+            )
+        )
+    if full_eval:
+        rows.append(("Full eval", f"{full_eval.mean_effective_score:.2f} / 5.00"))
+    print_key_value_block("Forge Revision", rows)
+
+
+def print_forge_history(rows: Sequence[tuple[str, str, str, str, str]]) -> None:
+    table = Table(title="Revision Ledger", border_style="steel")
+    table.add_column("Revision", style="gold", no_wrap=True)
+    table.add_column("Source", style="steel")
+    table.add_column("Bench", justify="right")
+    table.add_column("Vs Base", justify="right")
+    table.add_column("Full", justify="right")
+    for revision_id, source, bench, delta, full in rows:
+        table.add_row(revision_id, source, bench, delta, full)
+    console.print(table)
+
+
+def print_forge_case_table(
+    rows: Sequence[tuple[str, str, str, str, str]],
+    *,
+    title: str,
+) -> None:
+    if not rows:
+        print_warning("No benchmark case details are available yet.")
+        return
+    table = Table(title=title, border_style="steel")
+    table.add_column("Case", style="gold", no_wrap=True)
+    table.add_column("Score", justify="right", no_wrap=True)
+    table.add_column("Hard fail", justify="right", no_wrap=True)
+    table.add_column("Reasons", style="steel")
+    table.add_column("Judge summary", style="steel")
+    for case_id, score, hard_fail, reasons, summary in rows:
+        table.add_row(case_id, score, hard_fail, _truncate(reasons), _truncate(summary))
+    console.print(table)
+
+
+def print_forge_diff(rows: Sequence[tuple[str, str]], *, title: str) -> None:
+    if not rows:
+        print_warning("No benchmark delta is available yet.")
+        return
+    print_key_value_block(title, rows)
+
+
+def print_forge_trend(points: Sequence[tuple[str, float]]) -> None:
+    if not points:
+        print_warning("No benchmark trend is available yet.")
+        return
+    width = 24
+    lines: list[str] = []
+    for label, value in points:
+        filled = int(round((value / 5.0) * width))
+        bar = "#" * filled + "." * (width - filled)
+        lines.append(f"{label:>5}  {value:>4.2f} | {bar}")
+    print_text_panel("Score Trend", "\n".join(lines))
+
+
+def print_forge_help() -> None:
+    commands = "\n".join(
+        [
+            "/status                Show the active prompt, model, and latest benchmark",
+            "/show system|user      Print the current working prompt file",
+            "/edit system|user      Replace a prompt file, then auto-benchmark it",
+            "/restore <revision>    Restore a previous revision checkpoint",
+            "/undo                  Restore the previous revision checkpoint",
+            "/bench [note]          Snapshot the current prompt and run the benchmark lane",
+            "/full [note]           Run the full evaluation dataset on the current revision",
+            "/history               Show revision history",
+            "/graph                 Show the benchmark score trend",
+            "/diff                  Show the latest delta versus the baseline",
+            "/cases                 Show the weakest benchmark cases",
+            "/failures              Show only hard-failing benchmark cases",
+            "/coach <request>       Ask for advice without editing the prompt",
+            "/save <version>        Export the working prompt pack to prompt_packs/<version>",
+            "/reset [note]          Reset the working prompt back to the baseline",
+            "/quit                  Leave the forge session",
+            "",
+            "Any line without a leading slash is treated as an agent edit request.",
+        ]
+    )
+    print_text_panel("Forge Commands", commands)

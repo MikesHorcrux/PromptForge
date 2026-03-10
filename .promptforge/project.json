@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-03-10T21:16:47+00:00",
+  "format_version": 1,
+  "full_evaluation_dataset": "datasets/core.jsonl",
+  "last_opened_prompt": "v2",
+  "name": "PromptForge",
+  "preferred_generation_model": "gpt-5.4",
+  "preferred_judge_model": "gpt-5-mini",
+  "preferred_judge_provider": "openai",
+  "preferred_provider": "openai",
+  "quick_benchmark_dataset": "datasets/core.jsonl",
+  "updated_at": "2026-03-10T21:45:44+00:00"
+}

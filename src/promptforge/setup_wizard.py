@@ -22,6 +22,7 @@ PROVIDER_LABELS: dict[ProviderName, str] = {
     "codex": "Codex login",
     "openrouter": "OpenRouter",
 }
+INVALID_MODEL_INPUTS = {"y", "yes", "n", "no"}
 
 
 def run_setup_wizard(
@@ -61,13 +62,23 @@ def run_setup_wizard(
 
     generation_model = _prompt_text(
         "Default generation model",
-        default=env_values.get("OPENAI_BASE_MODEL", _default_model_for_provider(provider, purpose="generation")),
+        default=_suggest_model_default(
+            existing=env_values.get("OPENAI_BASE_MODEL"),
+            provider=provider,
+            purpose="generation",
+        ),
         input_fn=input_fn,
+        validator=_validate_model_name,
     )
     judge_model = _prompt_text(
         "Default judge model",
-        default=env_values.get("OPENAI_JUDGE_MODEL", _default_model_for_provider(judge_provider, purpose="judge")),
+        default=_suggest_model_default(
+            existing=env_values.get("OPENAI_JUDGE_MODEL"),
+            provider=judge_provider,
+            purpose="judge",
+        ),
         input_fn=input_fn,
+        validator=_validate_model_name,
     )
 
     updates: dict[str, str] = {
@@ -158,6 +169,19 @@ def _default_model_for_provider(provider: ProviderName, *, purpose: str) -> str:
     return "gpt-5-mini" if purpose == "judge" else "gpt-5.4"
 
 
+def _suggest_model_default(*, existing: str | None, provider: ProviderName, purpose: str) -> str:
+    if existing and existing.strip().lower() not in INVALID_MODEL_INPUTS:
+        return existing.strip()
+    return _default_model_for_provider(provider, purpose=purpose)
+
+
+def _validate_model_name(value: str) -> str | None:
+    stripped = value.strip()
+    if stripped.lower() in INVALID_MODEL_INPUTS:
+        return "Enter an actual model name, or press Enter to keep the default."
+    return None
+
+
 def _mask_secret(value: str | None) -> str:
     if not value:
         return "(not set)"
@@ -212,6 +236,7 @@ def _prompt_text(
     input_fn: InputFn,
     secret_fn: SecretFn | None = None,
     allow_empty: bool = False,
+    validator: Callable[[str], str | None] | None = None,
 ) -> str:
     while True:
         if secret_fn:
@@ -226,6 +251,11 @@ def _prompt_text(
                 return default
 
         if raw:
+            if validator:
+                error = validator(raw)
+                if error:
+                    print(error)
+                    continue
             return raw
         if allow_empty:
             return ""

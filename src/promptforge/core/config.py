@@ -47,8 +47,24 @@ class Settings(BaseModel):
         return self.var_dir / "runs"
 
     @property
+    def forge_dir(self) -> Path:
+        return self.var_dir / "forge"
+
+    @property
     def cache_db_path(self) -> Path:
         return self.state_dir / "cache.sqlite3"
+
+    @property
+    def workspace_state_path(self) -> Path:
+        return self.state_dir / "forge_workspace.json"
+
+    @property
+    def project_dir(self) -> Path:
+        return Path(".promptforge")
+
+    @property
+    def project_metadata_path(self) -> Path:
+        return self.project_dir / "project.json"
 
 
 settings = Settings()

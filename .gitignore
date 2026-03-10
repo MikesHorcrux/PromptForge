@@ -3,6 +3,11 @@
 __pycache__/
 .pytest_cache/
 .DS_Store
+DerivedData/
+xcuserdata/
+*.xcuserdatad
+*.xcscmblueprint
+*.xccheckout
 *.pyc
 *.pyo
 *.pyd
@@ -10,7 +15,7 @@ build/
 dist/
 *.egg-info/
 var/runs/
-var/logs/*.log
-var/state/*.sqlite3
+var/forge/
+var/logs/
+var/state/*.sqlite3*
 var/state/*.db
-

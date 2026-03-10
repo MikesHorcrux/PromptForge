@@ -13,7 +13,10 @@ pf <command> [options]
 Available commands:
 
 - `setup`
+- `status`
 - `doctor`
+- `forge`
+- `prompts`
 - `run`
 - `compare`
 - `report`
@@ -110,6 +113,23 @@ Troubleshooting:
 - `codex_auth` broken: run `codex login` or rerun `pf setup`
 - `model_access` broken: auth may exist but the chosen model may not be available to that provider
 
+## `pf status`
+
+Quick auth and workspace status without running a live model check.
+
+```bash
+pf status
+```
+
+What it shows:
+
+- project metadata from `.promptforge/project.json`
+- configured default provider and judge provider
+- configured generation and judge models
+- whether OpenAI or OpenRouter keys are present, in redacted form
+- Codex login status
+- active prompt and active forge session
+
 ## `pf run`
 
 Evaluates a single prompt pack against one dataset.
@@ -142,6 +162,68 @@ Troubleshooting:
 - Input schema validation error: fix the dataset case so `case.input` matches `variables.schema.json`
 - Score is unexpectedly zero: inspect `scores.json.cases[*].hard_fail_reasons`
 - Run stops early: inspect the failure rate and check whether the failure threshold tripped
+
+## `pf forge`
+
+Opens the PromptForge macOS app for the current project.
+
+```bash
+pf forge
+pf forge --project .
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--project` | PromptForge project root to open in the macOS app |
+
+What it does:
+
+- ensures `.promptforge/project.json` exists for the target project
+- locates `PromptForge.app`
+- launches the app and passes `--project <path>` and `--engine-root <repo-root>`
+
+If the app is not found, PromptForge prints guidance and expected install paths.
+
+Inside the app, the interactive slash commands are:
+
+| Command | Meaning |
+|---|---|
+| `/help` | Show the available app commands |
+| `/prompts` | List available prompt packs |
+| `/open <name>` | Open a prompt pack |
+| `/new <name>` | Create a new prompt pack |
+| `/clone <source> <name>` | Clone an existing prompt pack |
+| `/status` | Show provider, auth, and session info |
+| `/prompt` | Print the current system prompt into the transcript |
+| `/template` | Print the current user template into the transcript |
+| `/bench` | Run the quick benchmark lane |
+| `/full` | Run the full evaluation lane |
+| `/diff` | Show the pending diff or the latest baseline delta |
+| `/failures` | Show hard-failing cases |
+| `/apply` | Apply the staged proposal and rerun the quick benchmark |
+| `/discard` | Discard the staged proposal |
+| `/undo` | Restore the previous revision |
+| `/export <name>` | Export the current prompt to a new prompt pack |
+
+## `pf prompts`
+
+Prompt-pack management commands for multi-prompt workspaces.
+
+```bash
+pf prompts list
+pf prompts create --prompt draft-v1
+pf prompts create --prompt draft-v2 --from v1
+```
+
+Subcommands:
+
+| Command | Meaning |
+|---|---|
+| `pf prompts list` | List prompt packs under `prompt_packs/` |
+| `pf prompts create --prompt <name>` | Create a new prompt pack from the default scaffold |
+| `pf prompts create --prompt <name> --from <source>` | Clone an existing prompt pack into a new one |
 
 ## `pf compare`
 
@@ -269,4 +351,3 @@ pf run --prompt v1 --dataset datasets/core.jsonl
 - [`../src/promptforge/cli.py`](../src/promptforge/cli.py)
 - [`../src/promptforge/setup_wizard.py`](../src/promptforge/setup_wizard.py)
 - [`../src/promptforge/core/config.py`](../src/promptforge/core/config.py)
-

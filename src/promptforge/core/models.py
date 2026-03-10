@@ -80,6 +80,7 @@ class RunConfig(BaseModel):
     timeout_seconds: float = 60.0
     concurrency: int = 8
     failure_threshold: float = 0.40
+    use_cache: bool = True
 
     @field_validator("concurrency")
     @classmethod

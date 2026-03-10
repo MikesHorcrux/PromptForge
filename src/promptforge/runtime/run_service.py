@@ -300,7 +300,7 @@ class EvaluationService:
                         "config_hash": config_hash,
                     }
                 )
-                cached = self.cache.get(cache_key)
+                cached = self.cache.get(cache_key) if run_request.run_config.use_cache else None
                 if cached:
                     result = ModelExecutionResult(
                         case_id=case.id,
@@ -325,19 +325,20 @@ class EvaluationService:
                             config_hash=config_hash,
                             run_config=run_request.run_config,
                         )
-                        self.cache.set(
-                            CachedResponse(
-                                key=cache_key,
-                                prompt_version=prompt_pack.manifest.version,
-                                case_id=case.id,
-                                model=model,
-                                config_hash=config_hash,
-                                output_text=result.output_text or "",
-                                response_id=result.response_id,
-                                usage=result.usage,
-                                warnings=result.warnings,
+                        if run_request.run_config.use_cache:
+                            self.cache.set(
+                                CachedResponse(
+                                    key=cache_key,
+                                    prompt_version=prompt_pack.manifest.version,
+                                    case_id=case.id,
+                                    model=model,
+                                    config_hash=config_hash,
+                                    output_text=result.output_text or "",
+                                    response_id=result.response_id,
+                                    usage=result.usage,
+                                    warnings=result.warnings,
+                                )
                             )
-                        )
                     except Exception as exc:
                         result = ModelExecutionResult(
                             case_id=case.id,
