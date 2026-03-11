@@ -6,15 +6,10 @@ struct PromptForgeApp: App {
 
     init() {
         let launchContext = LaunchContext(arguments: CommandLine.arguments)
-        let bundledEngineRoot = (Bundle.main.object(forInfoDictionaryKey: "PromptForgeEngineRoot") as? String).map {
-            NSString(string: $0).expandingTildeInPath
-        }.map {
-            URL(fileURLWithPath: $0).standardizedFileURL.path
-        }
         _appModel = StateObject(
             wrappedValue: PromptForgeAppModel(
                 initialProjectPath: launchContext.projectPath,
-                initialEngineRoot: launchContext.engineRoot ?? bundledEngineRoot
+                initialEngineRoot: launchContext.engineRoot
             )
         )
     }

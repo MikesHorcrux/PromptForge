@@ -16,6 +16,7 @@ from promptforge.core.config import settings
 from promptforge.core.models import RunConfig, ScoringConfig
 from promptforge.forge.workspace import ForgeWorkspaceService
 from promptforge.project import PromptForgeProject
+from promptforge.prompts.loader import load_prompt_pack
 from promptforge.scenarios.models import ScenarioSuite
 
 
@@ -106,6 +107,7 @@ class PromptForgeHelper:
         self.project = PromptForgeProject.open_or_create(self.project_root)
         self.workspace = self._build_workspace()
         self.events = HelperEventStream()
+        self._connection_cache: dict[str, dict[str, Any]] = {}
 
     def _build_workspace(self) -> ForgeWorkspaceService:
         metadata = self.project.metadata
@@ -152,6 +154,10 @@ class PromptForgeHelper:
             return self._status_payload()
         if method == "settings.get":
             return self._settings_payload()
+        if method == "connections.refresh":
+            requested = params.get("providers")
+            providers = [str(item) for item in requested] if isinstance(requested, list) else None
+            return {"auth": self._auth_payload(refresh=True, providers=providers)}
         if method == "settings.update":
             metadata = self.project.metadata
             if "name" in params:
@@ -211,6 +217,11 @@ class PromptForgeHelper:
             )
             self.workspace.set_active_prompt(name)
             return {"created": str(destination), "prompt": name}
+        if method == "prompts.import":
+            destination = self.workspace.import_prompt(str(params["source_path"]))
+            prompt = load_prompt_pack(destination).manifest.version
+            self.workspace.set_active_prompt(prompt)
+            return {"created": str(destination), "prompt": prompt}
         if method == "prompts.export":
             prompt = self._resolve_prompt_ref(params)
             destination = await self.workspace.export_prompt(prompt, str(params["name"]))
@@ -412,12 +423,21 @@ class PromptForgeHelper:
             }
         raise ValueError(f"Unsupported method: {method}")
 
-    def _resolve_prompt_ref(self, params: dict[str, Any]) -> str:
+    def _resolve_prompt_ref(self, params: dict[str, Any], *, allow_missing: bool = False) -> str | None:
         prompts = self.workspace.list_prompts()
         if not prompts:
+            if allow_missing:
+                return None
             raise ValueError("No prompt packs are available in this project.")
         versions = {prompt.version for prompt in prompts}
-        prompt = str(params.get("prompt") or self.project.metadata.last_opened_prompt or "").strip()
+        explicit_prompt = params.get("prompt")
+        prompt = str(explicit_prompt or self.project.metadata.last_opened_prompt or "").strip()
+        if explicit_prompt is not None:
+            if not prompt:
+                raise ValueError("Prompt reference cannot be empty.")
+            if prompt not in versions:
+                raise ValueError(f"Prompt pack not found: {prompt}")
+            return prompt
         if prompt in versions:
             return prompt
         fallback = prompts[0].version
@@ -432,30 +452,13 @@ class PromptForgeHelper:
         }
 
     def _status_payload(self) -> dict[str, Any]:
-        prompt = self._resolve_prompt_ref({})
+        prompt = self._resolve_prompt_ref({}, allow_missing=True)
         session_id = self.workspace.state.prompt_sessions.get(prompt or "", "")
-        provider_ok, provider_detail = _provider_auth_status(self.project.metadata.preferred_provider)
-        judge_provider = self.project.metadata.preferred_judge_provider or self.project.metadata.preferred_provider
-        judge_ok, judge_detail = _provider_auth_status(judge_provider)
         return {
             "project": self._project_payload(),
             "active_prompt": prompt,
             "active_session": session_id or None,
-            "auth": {
-                "provider": {
-                    "name": self.project.metadata.preferred_provider,
-                    "ready": provider_ok,
-                    "detail": provider_detail,
-                },
-                "judge": {
-                    "name": judge_provider,
-                    "ready": judge_ok,
-                    "detail": judge_detail,
-                },
-                "openai_key_set": bool(settings.openai_api_key),
-                "openrouter_key_set": bool(settings.openrouter_api_key),
-                "connections": self._connection_payload(),
-            },
+            "auth": self._auth_payload(),
         }
 
     def _settings_payload(self) -> dict[str, Any]:
@@ -476,19 +479,73 @@ class PromptForgeHelper:
                 "builder_permission_mode": metadata.builder_permission_mode,
                 "builder_research_policy": metadata.builder_research_policy,
             },
-            "auth": self._status_payload()["auth"],
+            "auth": self._auth_payload(),
         }
 
-    def _connection_payload(self) -> dict[str, Any]:
-        connections: dict[str, Any] = {}
-        for provider in ("openai", "openrouter", "codex"):
-            ready, detail = _provider_auth_status(provider)
-            connections[provider] = {
-                "name": provider,
-                "ready": ready,
-                "detail": detail,
-            }
-        return connections
+    def _auth_payload(
+        self,
+        *,
+        refresh: bool = False,
+        providers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        connections = self._connection_payload(refresh=refresh, providers=providers)
+        provider_name = self.project.metadata.preferred_provider
+        judge_name = self.project.metadata.preferred_judge_provider or provider_name
+        provider = connections.get(provider_name, self._default_connection_status(provider_name))
+        judge = connections.get(judge_name, self._default_connection_status(judge_name))
+        return {
+            "provider": {
+                "name": provider_name,
+                "ready": provider["ready"],
+                "detail": provider["detail"],
+            },
+            "judge": {
+                "name": judge_name,
+                "ready": judge["ready"],
+                "detail": judge["detail"],
+            },
+            "connections": connections,
+        }
+
+    def _connection_payload(
+        self,
+        *,
+        refresh: bool = False,
+        providers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        requested = providers or ["openai", "openrouter", "codex"]
+        unique_requested = list(dict.fromkeys(requested))
+        if refresh:
+            for provider in unique_requested:
+                self._connection_cache[provider] = self._probe_connection_status(provider)
+        return {
+            provider: dict(self._connection_cache.get(provider, self._default_connection_status(provider)))
+            for provider in unique_requested
+        }
+
+    def _default_connection_status(self, provider: str) -> dict[str, Any]:
+        if provider == "openai":
+            ready = bool(settings.openai_api_key)
+            detail = "OPENAI_API_KEY is set" if ready else "OPENAI_API_KEY is missing"
+        elif provider == "openrouter":
+            ready = bool(settings.openrouter_api_key)
+            detail = "OPENROUTER_API_KEY is set" if ready else "OPENROUTER_API_KEY is missing"
+        else:
+            ready = False
+            detail = "Codex status not checked yet. Open Settings to refresh connections."
+        return {
+            "name": provider,
+            "ready": ready,
+            "detail": detail,
+        }
+
+    def _probe_connection_status(self, provider: str) -> dict[str, Any]:
+        ready, detail = _provider_auth_status(provider)
+        return {
+            "name": provider,
+            "ready": ready,
+            "detail": detail,
+        }
 
     async def _latest_insights(self, prompt: str) -> dict[str, Any]:
         session = self.workspace.current_session(prompt)

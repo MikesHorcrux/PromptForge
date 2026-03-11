@@ -424,7 +424,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Select a Prompt")
                 .font(.system(size: 28, weight: .semibold))
-            Text("Pick a prompt from the sidebar to open the IDE.")
+            Text("This project does not have a prompt yet. Create one or import an existing prompt pack to open the IDE.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button("New Prompt") {
@@ -432,8 +432,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("Open Settings") {
-                    model.openSettings()
+                Button("Import Prompt") {
+                    model.importPromptPack()
                 }
                 .buttonStyle(.bordered)
             }
@@ -2917,7 +2917,7 @@ private struct SettingsSheet: View {
                             }
                             .buttonStyle(.bordered)
                             Button("Refresh Status") {
-                                model.openSettings(onboarding: model.isOnboarding)
+                                model.refreshConnectionStatuses()
                             }
                             .buttonStyle(.bordered)
                         }

@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from promptforge.agents.prompt_judge.schemas import RubricJudgeOutput, RubricTraitScore
@@ -252,3 +253,107 @@ def test_discard_prepared_edit_keeps_working_prompt_unchanged(tmp_path, monkeypa
 
     assert (session.working_prompt_dir / "system.md").read_text(encoding="utf-8") == before
     assert session.list_pending_edits() == []
+
+
+def test_apply_prepared_edit_keeps_working_prompt_when_staged_prompt_is_invalid(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
+    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+
+    gateway = FakeForgeGateway()
+    session = asyncio.run(
+        ForgeSession.create(
+            prompt_ref="prompt_packs/v1",
+            dataset_path="datasets/core.jsonl",
+            bench_dataset_path=None,
+            model="fake-model",
+            agent_model="gpt-5-mini",
+            provider="openai",
+            judge_provider="openai",
+            run_config=RunConfig(use_cache=True),
+            scoring_config=ScoringConfig(judge_model="fake-judge"),
+            bench_repeats=1,
+            full_repeats=1,
+            gateway=gateway,
+        )
+    )
+
+    async def fake_bad_edit(self, request: str, *, workdir=None) -> str:
+        manifest_path = (workdir or self.working_prompt_dir) / "manifest.yaml"
+        manifest_path.write_text("version: [broken\n", encoding="utf-8")
+        return "Prepared invalid prompt pack."
+
+    monkeypatch.setattr(ForgeSession, "_run_codex_edit_agent", fake_bad_edit)
+
+    before_system = (session.working_prompt_dir / "system.md").read_text(encoding="utf-8")
+    before_manifest = (session.working_prompt_dir / "manifest.yaml").read_text(encoding="utf-8")
+    proposal = asyncio.run(session.prepare_agent_request("break the manifest"))
+
+    with pytest.raises(Exception):
+        asyncio.run(session.apply_prepared_edit(proposal.proposal_id))
+
+    assert (session.working_prompt_dir / "system.md").read_text(encoding="utf-8") == before_system
+    assert (session.working_prompt_dir / "manifest.yaml").read_text(encoding="utf-8") == before_manifest
+    assert session.get_pending_edit(proposal.proposal_id).proposal_id == proposal.proposal_id
+
+
+@pytest.mark.parametrize(
+    ("operation_name", "target_name"),
+    [
+        ("reset", "working"),
+        ("restore", "working"),
+        ("promote", "baseline"),
+    ],
+)
+def test_directory_swaps_roll_back_when_revision_creation_fails(tmp_path, monkeypatch, operation_name: str, target_name: str) -> None:
+    monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
+    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+
+    gateway = FakeForgeGateway()
+    session = asyncio.run(
+        ForgeSession.create(
+            prompt_ref="prompt_packs/v1",
+            dataset_path="datasets/core.jsonl",
+            bench_dataset_path=None,
+            model="fake-model",
+            agent_model="gpt-5-mini",
+            provider="openai",
+            judge_provider="openai",
+            run_config=RunConfig(use_cache=True),
+            scoring_config=ScoringConfig(judge_model="fake-judge"),
+            bench_repeats=1,
+            full_repeats=1,
+            gateway=gateway,
+        )
+    )
+
+    original_system = (session.working_prompt_dir / "system.md").read_text(encoding="utf-8")
+    asyncio.run(
+        session.edit_prompt_file(
+            target="system",
+            content=original_system + "\nAdd improved guidance.\n",
+        )
+    )
+
+    if target_name == "working":
+        before_target = (session.working_prompt_dir / "system.md").read_text(encoding="utf-8")
+    else:
+        before_target = (Path(session.manifest.baseline_prompt_dir) / "system.md").read_text(encoding="utf-8")
+
+    async def explode_revision(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(session, "_create_revision_from_prompt_dir", explode_revision)
+
+    with pytest.raises(RuntimeError):
+        if operation_name == "reset":
+            asyncio.run(session.reset_to_baseline())
+        elif operation_name == "restore":
+            asyncio.run(session.restore_revision("r000"))
+        else:
+            asyncio.run(session.promote_current_to_baseline(summary="promote"))
+
+    if target_name == "working":
+        after_target = (session.working_prompt_dir / "system.md").read_text(encoding="utf-8")
+    else:
+        after_target = (Path(session.manifest.baseline_prompt_dir) / "system.md").read_text(encoding="utf-8")
+    assert after_target == before_target

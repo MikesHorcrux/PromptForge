@@ -65,6 +65,31 @@ def _seed_prompt_packs(root: Path) -> None:
     shutil.copytree(Path("prompt_packs") / "v1", root / "v1")
 
 
+def test_helper_empty_project_status_settings_and_prompts_succeed(tmp_path, monkeypatch) -> None:
+    original_cwd = Path.cwd()
+
+    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
+    monkeypatch.setattr(settings, "var_dir", Path("var"))
+    monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
+
+    try:
+        helper = PromptForgeHelper(project_root=tmp_path)
+
+        prompts = asyncio.run(helper.handle("prompts.list", {}))
+        assert prompts["prompts"] == []
+
+        status = asyncio.run(helper.handle("status.get", {}))
+        assert status["active_prompt"] is None
+        assert status["active_session"] is None
+
+        settings_payload = asyncio.run(helper.handle("settings.get", {}))
+        assert settings_payload["settings"]["name"] == tmp_path.name
+        assert settings_payload["auth"]["connections"]["codex"]["detail"].startswith("Codex status not checked")
+    finally:
+        os.chdir(original_cwd)
+
+
 def test_helper_exposes_project_prompt_and_benchmark_contract(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
     prompt_root = tmp_path / "prompt_packs"
@@ -314,7 +339,10 @@ def test_helper_status_degrades_when_codex_probe_fails(tmp_path, monkeypatch) ->
     try:
         helper = PromptForgeHelper(project_root=tmp_path)
         status = asyncio.run(helper.handle("status.get", {}))
-        codex = status["auth"]["connections"]["codex"]
+        assert status["auth"]["connections"]["codex"]["detail"].startswith("Codex status not checked")
+
+        refreshed = asyncio.run(helper.handle("connections.refresh", {}))
+        codex = refreshed["auth"]["connections"]["codex"]
         assert codex["ready"] is False
         assert "Codex status unavailable" in codex["detail"]
     finally:

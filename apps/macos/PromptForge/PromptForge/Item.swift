@@ -21,6 +21,79 @@ struct LaunchContext {
     }
 }
 
+enum EngineRuntimeSource: Equatable {
+    case explicit
+    case bundled
+    case saved
+    case projectFallback
+}
+
+struct EngineRuntimeSelection: Equatable {
+    let rootPath: String
+    let source: EngineRuntimeSource
+}
+
+enum EngineRuntimeLocator {
+    static let bundledDirectoryName = "engine"
+
+    static func bundledEngineRoot(resourceURL: URL?) -> String? {
+        guard let resourceURL else {
+            return nil
+        }
+        let candidate = resourceURL.appendingPathComponent(bundledDirectoryName).path
+        return isValidEngineRoot(candidate) ? standardized(candidate) : nil
+    }
+
+    static func isValidEngineRoot(_ root: String) -> Bool {
+        let standardizedRoot = standardized(root)
+        let pythonExecutable = URL(fileURLWithPath: standardizedRoot).appendingPathComponent(".venv/bin/python").path
+        let helperModule = URL(fileURLWithPath: standardizedRoot).appendingPathComponent("src/promptforge/helper/server.py").path
+        return FileManager.default.isExecutableFile(atPath: pythonExecutable)
+            && FileManager.default.fileExists(atPath: helperModule)
+    }
+
+    static func resolve(
+        projectURL: URL,
+        explicitEngineRoot: String?,
+        savedEngineRoot: String?,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) -> EngineRuntimeSelection? {
+        let candidates: [(String?, EngineRuntimeSource)] = [
+            (explicitEngineRoot, .explicit),
+            (bundledEngineRoot(resourceURL: bundleResourceURL), .bundled),
+            (savedEngineRoot, .saved),
+        ]
+        var seen = Set<String>()
+        for (candidate, source) in candidates {
+            guard let candidate, !candidate.isEmpty else {
+                continue
+            }
+            let standardizedCandidate = standardized(candidate)
+            if !seen.insert(standardizedCandidate).inserted {
+                continue
+            }
+            if isValidEngineRoot(standardizedCandidate) {
+                return EngineRuntimeSelection(rootPath: standardizedCandidate, source: source)
+            }
+        }
+#if DEBUG
+        let projectCandidate = standardized(projectURL.path)
+        if seen.insert(projectCandidate).inserted, isValidEngineRoot(projectCandidate) {
+            return EngineRuntimeSelection(rootPath: projectCandidate, source: .projectFallback)
+        }
+#endif
+        return nil
+    }
+
+    static var missingRuntimeMessage: String {
+        "PromptForge could not find a usable bundled runtime. Rebuild the app so it includes the packaged engine, or pass a valid --engine-root in a local debug run."
+    }
+
+    private static func standardized(_ path: String) -> String {
+        URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
+    }
+}
+
 struct PromptSummaryModel: Identifiable, Equatable {
     let version: String
     let name: String
@@ -508,8 +581,11 @@ final class PromptForgeHelperClient {
     }
 
     private func launchHelper() throws {
+        guard EngineRuntimeLocator.isValidEngineRoot(engineRoot) else {
+            throw HelperClientError.helperLaunchFailed(EngineRuntimeLocator.missingRuntimeMessage)
+        }
         let process = Process()
-        let pythonExecutable = "\(engineRoot)/.venv/bin/python"
+        let pythonExecutable = URL(fileURLWithPath: engineRoot).appendingPathComponent(".venv/bin/python").path
         if FileManager.default.isExecutableFile(atPath: pythonExecutable) {
             process.executableURL = URL(fileURLWithPath: pythonExecutable)
             process.arguments = [
@@ -523,18 +599,7 @@ final class PromptForgeHelperClient {
                 token,
             ]
         } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [
-                "python3",
-                "-m",
-                "promptforge.helper.server",
-                "--project",
-                projectRoot,
-                "--socket",
-                socketPath,
-                "--token",
-                token,
-            ]
+            throw HelperClientError.helperLaunchFailed(EngineRuntimeLocator.missingRuntimeMessage)
         }
 
         let stderrPipe = Pipe()
@@ -542,7 +607,7 @@ final class PromptForgeHelperClient {
         process.standardOutput = Pipe()
 
         var environment = ProcessInfo.processInfo.environment
-        let pythonPath = "\(engineRoot)/src"
+        let pythonPath = URL(fileURLWithPath: engineRoot).appendingPathComponent("src").path
         if let existing = environment["PYTHONPATH"], !existing.isEmpty {
             environment["PYTHONPATH"] = "\(existing):\(pythonPath)"
         } else {
@@ -862,28 +927,51 @@ final class PromptForgeAppModel: ObservableObject {
         return true
     }
 
-    private func resolveEngineRoot(projectURL: URL, explicitEngineRoot: String?) -> String {
-        let candidates = [explicitEngineRoot, engineRoot]
-            .compactMap { root -> String? in
-                guard let root, !root.isEmpty else {
-                    return nil
-                }
-                return NSString(string: root).expandingTildeInPath
-            }
-        for candidate in candidates {
-            let pythonExecutable = URL(fileURLWithPath: candidate).appendingPathComponent(".venv/bin/python").path
-            let helperModule = URL(fileURLWithPath: candidate).appendingPathComponent("src/promptforge/helper/server.py").path
-            if FileManager.default.isExecutableFile(atPath: pythonExecutable),
-               FileManager.default.fileExists(atPath: helperModule)
-            {
-                return URL(fileURLWithPath: candidate).standardizedFileURL.path
-            }
-        }
-        return projectURL.path
+    private func resolveEngineRoot(projectURL: URL, explicitEngineRoot: String?) -> EngineRuntimeSelection? {
+        EngineRuntimeLocator.resolve(
+            projectURL: projectURL,
+            explicitEngineRoot: explicitEngineRoot,
+            savedEngineRoot: engineRoot
+        )
     }
 
     func createPromptShortcut() {
         submitText("/new draft-\(Int(Date().timeIntervalSince1970))")
+    }
+
+    func importPromptPack() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a prompt pack folder to import."
+        if panel.runModal() == .OK, let url = panel.url {
+            Task {
+                await importPromptPack(from: url)
+            }
+        }
+    }
+
+    private func importPromptPack(from url: URL) async {
+        guard let helper else {
+            appendTranscript(.warning, "Import prompt", "Open a project before importing a prompt pack.")
+            return
+        }
+        do {
+            try await withBusyState("Importing prompt") {
+                let result = try await helper.send(
+                    method: "prompts.import",
+                    params: ["source_path": url.path]
+                )
+                try await refreshPrompts()
+                if let prompt = result["prompt"] as? String {
+                    await openPrompt(prompt, announce: true)
+                }
+            }
+        } catch {
+            appendTranscript(.warning, "Import prompt", error.localizedDescription)
+        }
     }
 
     func createScenarioShortcut() {
@@ -982,6 +1070,7 @@ final class PromptForgeAppModel: ObservableObject {
         eventTask = nil
         eventCursor = 0
         helper?.shutdown()
+        resetPromptWorkspaceState()
         let path = url.path
         guard beginProjectScope(for: url) else {
             launchError = "PromptForge needs folder access to open this project. Choose the project folder again to re-grant access."
@@ -990,12 +1079,18 @@ final class PromptForgeAppModel: ObservableObject {
             return
         }
         SecurityScopedProjectStore.save(url: url)
-        let resolvedEngineRoot = resolveEngineRoot(projectURL: url, explicitEngineRoot: engineRoot)
+        guard let resolvedEngineRuntime = resolveEngineRoot(projectURL: url, explicitEngineRoot: engineRoot) else {
+            launchError = EngineRuntimeLocator.missingRuntimeMessage
+            appendTranscript(.warning, "Launch error", EngineRuntimeLocator.missingRuntimeMessage)
+            isBusy = false
+            busyLabel = ""
+            return
+        }
         do {
-            helper = try PromptForgeHelperClient(projectRoot: path, engineRoot: resolvedEngineRoot)
-            self.engineRoot = resolvedEngineRoot
+            helper = try PromptForgeHelperClient(projectRoot: path, engineRoot: resolvedEngineRuntime.rootPath)
+            self.engineRoot = resolvedEngineRuntime.rootPath
             UserDefaults.standard.set(path, forKey: "PromptForgeProjectPath")
-            UserDefaults.standard.set(resolvedEngineRoot, forKey: "PromptForgeEngineRoot")
+            UserDefaults.standard.set(resolvedEngineRuntime.rootPath, forKey: "PromptForgeEngineRoot")
             projectPath = path
             selectedWorkspaceMode = .studio
             transcript.removeAll()
@@ -1007,7 +1102,7 @@ final class PromptForgeAppModel: ObservableObject {
             if let prompt = selectedPrompt ?? prompts.first?.version {
                 await openPrompt(prompt, announce: false)
             } else {
-                appendTranscript(.system, "Project", "No prompt packs found. Use /new <name> to create one.")
+                appendTranscript(.system, "Project", "No prompt packs found. Create or import a prompt to get started.")
             }
             if !UserDefaults.standard.bool(forKey: "PromptForgeCompletedOnboarding") {
                 await loadSettings(openingMode: "onboarding")
@@ -1590,6 +1685,9 @@ final class PromptForgeAppModel: ObservableObject {
             applySettingsPayload(payload)
             settingsMode = openingMode
             showSettings = true
+            Task {
+                await refreshConnectionStatuses(showBusy: false, surfaceErrorsInTranscript: false)
+            }
         } catch {
             settingsError = error.localizedDescription
             appendTranscript(.warning, "Settings", error.localizedDescription)
@@ -1767,6 +1865,70 @@ final class PromptForgeAppModel: ObservableObject {
         applyConnectionPayload([:])
     }
 
+    private func resetPromptWorkspaceState() {
+        prompts = []
+        selectedPrompt = nil
+        selectedSuiteID = nil
+        selectedScenarioCaseID = nil
+        selectedReviewID = nil
+        selectedReviewCaseID = nil
+        currentPromptName = ""
+        currentPromptDescription = ""
+        promptRootPath = ""
+        systemPrompt = ""
+        userTemplate = ""
+        promptDraft = .init()
+        savedPromptDraft = .init()
+        promptFiles = []
+        benchmarkRows = []
+        weakCases = []
+        failureCases = []
+        pendingProposal = nil
+        benchmarkHistory = []
+        benchmarkTrend = []
+        scenarioSuites = []
+        scenarioDraft = nil
+        builderActions = []
+        reviews = []
+        decisions = []
+        latestPlaygroundRun = nil
+        promptSaveNotice = nil
+        sessionLine = "session --"
+        latestScoreLine = "--"
+        latestDeltaLine = "--"
+        statusSubtitle = "Ready"
+    }
+
+    func refreshConnectionStatuses() {
+        Task {
+            await refreshConnectionStatuses(showBusy: false, surfaceErrorsInTranscript: false)
+        }
+    }
+
+    private func refreshConnectionStatuses(showBusy: Bool, surfaceErrorsInTranscript: Bool) async {
+        guard let helper else { return }
+        if showBusy {
+            isBusy = true
+        }
+        settingsError = nil
+        defer {
+            if showBusy {
+                isBusy = false
+            }
+        }
+        do {
+            let payload = try await helper.send(method: "connections.refresh")
+            if let authPayload = payload["auth"] as? [String: Any] {
+                applyConnectionPayload(authPayload)
+            }
+        } catch {
+            settingsError = error.localizedDescription
+            if surfaceErrorsInTranscript {
+                appendTranscript(.warning, "Connections", error.localizedDescription)
+            }
+        }
+    }
+
     private func refreshPrompts() async throws {
         guard let helper else { return }
         let promptResult = try await helper.send(method: "prompts.list")
@@ -1778,6 +1940,10 @@ final class PromptForgeAppModel: ObservableObject {
             let name = payload["name"] as? String ?? version
             let description = payload["description"] as? String ?? ""
             return PromptSummaryModel(version: version, name: name, description: description)
+        }
+        if prompts.isEmpty {
+            resetPromptWorkspaceState()
+            return
         }
         let promptVersions = Set(prompts.map(\.version))
         if let selectedPrompt, !promptVersions.contains(selectedPrompt) {

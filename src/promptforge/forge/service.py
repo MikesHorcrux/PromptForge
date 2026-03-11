@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from statistics import fmean, pstdev
 from typing import Any
@@ -365,9 +366,21 @@ class ForgeSession:
             self._drop_pending_edit(proposal_id)
             raise FileNotFoundError(f"Prepared edit staging dir is missing: {staged_dir}")
 
-        self._replace_working_prompt_dir_from(staged_dir)
         revision: ForgeRevision | None = None
-        if proposal.changed_files:
+        if not proposal.changed_files:
+            self._drop_pending_edit(proposal_id)
+            return AgentEditResult(
+                summary=proposal.summary,
+                changed_files=[],
+                diff_preview=proposal.diff_preview,
+            )
+
+        backup_dir = self._replace_prompt_dir_atomically(
+            target_dir=self.working_prompt_dir,
+            source_dir=staged_dir,
+            validate_prompt_pack=True,
+        )
+        try:
             revision = await self._create_revision_from_prompt_dir(
                 prompt_dir=self.working_prompt_dir,
                 source="agent_edit",
@@ -375,6 +388,10 @@ class ForgeSession:
                 changed_files=proposal.changed_files,
                 run_benchmark=False,
             )
+        except Exception:
+            self._rollback_directory_swap(target_dir=self.working_prompt_dir, backup_dir=backup_dir)
+            raise
+        self._commit_directory_swap(backup_dir)
         self._drop_pending_edit(proposal_id)
         log_event(
             self.logger,
@@ -507,14 +524,23 @@ class ForgeSession:
 
     async def reset_to_baseline(self, *, note: str | None = None) -> ForgeRevision:
         baseline_dir = Path(self.manifest.baseline_prompt_dir)
-        self._replace_working_prompt_dir_from(baseline_dir)
-        revision = await self._create_revision_from_prompt_dir(
-            prompt_dir=self.working_prompt_dir,
-            source="reset",
-            note=note or "Reset working prompt to the baseline snapshot.",
-            changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
-            run_benchmark=False,
+        backup_dir = self._replace_prompt_dir_atomically(
+            target_dir=self.working_prompt_dir,
+            source_dir=baseline_dir,
+            validate_prompt_pack=True,
         )
+        try:
+            revision = await self._create_revision_from_prompt_dir(
+                prompt_dir=self.working_prompt_dir,
+                source="reset",
+                note=note or "Reset working prompt to the baseline snapshot.",
+                changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
+                run_benchmark=False,
+            )
+        except Exception:
+            self._rollback_directory_swap(target_dir=self.working_prompt_dir, backup_dir=backup_dir)
+            raise
+        self._commit_directory_swap(backup_dir)
         self._record_builder_action(
             kind="restore",
             title="Reset to baseline",
@@ -526,14 +552,23 @@ class ForgeSession:
 
     async def restore_revision(self, revision_id: str, *, note: str | None = None) -> ForgeRevision:
         revision = self.get_revision(revision_id)
-        self._replace_working_prompt_dir_from(Path(revision.prompt_snapshot_dir))
-        restored = await self._create_revision_from_prompt_dir(
-            prompt_dir=self.working_prompt_dir,
-            source="restore",
-            note=note or f"Restored working prompt to {revision_id}.",
-            changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
-            run_benchmark=False,
+        backup_dir = self._replace_prompt_dir_atomically(
+            target_dir=self.working_prompt_dir,
+            source_dir=Path(revision.prompt_snapshot_dir),
+            validate_prompt_pack=True,
         )
+        try:
+            restored = await self._create_revision_from_prompt_dir(
+                prompt_dir=self.working_prompt_dir,
+                source="restore",
+                note=note or f"Restored working prompt to {revision_id}.",
+                changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
+                run_benchmark=False,
+            )
+        except Exception:
+            self._rollback_directory_swap(target_dir=self.working_prompt_dir, backup_dir=backup_dir)
+            raise
+        self._commit_directory_swap(backup_dir)
         self._record_builder_action(
             kind="restore",
             title="Restored revision",
@@ -710,16 +745,23 @@ class ForgeSession:
     ) -> DecisionRecord:
         source_dir = self.working_prompt_dir
         baseline_dir = Path(self.manifest.baseline_prompt_dir)
-        if baseline_dir.exists():
-            shutil.rmtree(baseline_dir)
-        shutil.copytree(source_dir, baseline_dir)
-        baseline_revision = await self._create_revision_from_prompt_dir(
-            prompt_dir=baseline_dir,
-            source="baseline",
-            note="Promoted current candidate to baseline.",
-            changed_files=list(EDITABLE_PROMPT_FILES),
-            run_benchmark=False,
+        backup_dir = self._replace_prompt_dir_atomically(
+            target_dir=baseline_dir,
+            source_dir=source_dir,
+            validate_prompt_pack=True,
         )
+        try:
+            baseline_revision = await self._create_revision_from_prompt_dir(
+                prompt_dir=baseline_dir,
+                source="baseline",
+                note="Promoted current candidate to baseline.",
+                changed_files=list(EDITABLE_PROMPT_FILES),
+                run_benchmark=False,
+            )
+        except Exception:
+            self._rollback_directory_swap(target_dir=baseline_dir, backup_dir=backup_dir)
+            raise
+        self._commit_directory_swap(backup_dir)
         self.manifest.baseline_revision_id = baseline_revision.revision_id
         self._persist()
         return self.record_decision(
@@ -1709,18 +1751,77 @@ class ForgeSession:
         ]
         self._persist()
 
-    def _replace_working_prompt_dir_from(self, source_dir: Path) -> None:
-        for child in self.working_prompt_dir.iterdir():
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-        for child in source_dir.iterdir():
-            destination = self.working_prompt_dir / child.name
-            if child.is_dir():
-                shutil.copytree(child, destination)
-            else:
-                shutil.copy2(child, destination)
+    def _validate_prompt_dir(self, prompt_dir: Path) -> None:
+        ensure_prompt_brief(prompt_dir)
+        load_prompt_pack(prompt_dir)
+
+    def _replace_prompt_dir_atomically(
+        self,
+        *,
+        target_dir: Path,
+        source_dir: Path,
+        validate_prompt_pack: bool,
+    ) -> Path | None:
+        staging_dir = target_dir.parent / f".{target_dir.name}.staging-{uuid.uuid4().hex}"
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        shutil.copytree(source_dir, staging_dir, symlinks=True)
+        try:
+            if validate_prompt_pack:
+                self._validate_prompt_dir(staging_dir)
+            self._sync_tree(staging_dir)
+            self._fsync_path(staging_dir.parent)
+            return self._stage_directory_swap(target_dir=target_dir, prepared_dir=staging_dir)
+        except Exception:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
+            raise
+
+    def _stage_directory_swap(self, *, target_dir: Path, prepared_dir: Path) -> Path | None:
+        backup_dir: Path | None = None
+        if target_dir.exists():
+            backup_dir = target_dir.parent / f".{target_dir.name}.backup-{uuid.uuid4().hex}"
+            os.replace(target_dir, backup_dir)
+        try:
+            os.replace(prepared_dir, target_dir)
+            self._fsync_path(target_dir.parent)
+            return backup_dir
+        except Exception:
+            if prepared_dir.exists():
+                shutil.rmtree(prepared_dir)
+            if backup_dir is not None and backup_dir.exists() and not target_dir.exists():
+                os.replace(backup_dir, target_dir)
+            self._fsync_path(target_dir.parent)
+            raise
+
+    def _commit_directory_swap(self, backup_dir: Path | None) -> None:
+        if backup_dir is not None and backup_dir.exists():
+            shutil.rmtree(backup_dir)
+            self._fsync_path(backup_dir.parent)
+
+    def _rollback_directory_swap(self, *, target_dir: Path, backup_dir: Path | None) -> None:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        if backup_dir is not None and backup_dir.exists():
+            os.replace(backup_dir, target_dir)
+        self._fsync_path(target_dir.parent)
+
+    def _sync_tree(self, root: Path) -> None:
+        for path in sorted(root.rglob("*")):
+            self._fsync_path(path)
+        self._fsync_path(root)
+
+    def _fsync_path(self, path: Path) -> None:
+        try:
+            fd = os.open(path, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
 
     def _read_prompt_file_map(self, root: Path) -> dict[str, str]:
         payload: dict[str, str] = {}

@@ -18,7 +18,5 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>PromptForgeEngineRoot</key>
-	<string>$(SRCROOT)/../../..</string>
 </dict>
 </plist>

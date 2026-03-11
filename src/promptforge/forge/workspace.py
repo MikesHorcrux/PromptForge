@@ -188,6 +188,16 @@ class ForgeWorkspaceService:
         )
         return destination
 
+    def import_prompt(self, source_path: str | Path) -> Path:
+        source_pack = load_prompt_pack(Path(source_path).expanduser())
+        destination = settings.prompt_pack_dir / source_pack.manifest.version
+        if destination.exists():
+            raise FileExistsError(f"Prompt pack already exists: {source_pack.manifest.version}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_pack.root, destination)
+        ensure_prompt_brief(destination, description=source_pack.manifest.description)
+        return destination
+
     def load_visible_prompt(self, prompt_ref: str) -> PromptView:
         session_id = self.state.prompt_sessions.get(prompt_ref)
         if session_id:

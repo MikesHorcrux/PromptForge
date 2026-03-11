@@ -239,6 +239,7 @@ class CodexGateway:
         async def operation() -> str:
             schema_path: str | None = None
             output_path: str | None = None
+            process: asyncio.subprocess.Process | None = None
             try:
                 with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as output_handle:
                     output_path = output_handle.name
@@ -258,10 +259,26 @@ class CodexGateway:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(prompt.encode("utf-8")),
-                    timeout=timeout_seconds + 5,
-                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(prompt.encode("utf-8")),
+                        timeout=timeout_seconds + 5,
+                    )
+                except asyncio.TimeoutError:
+                    if process.returncode is None:
+                        try:
+                            process.terminate()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=2)
+                        except asyncio.TimeoutError:
+                            try:
+                                process.kill()
+                            except ProcessLookupError:
+                                pass
+                            await process.wait()
+                    raise
                 stderr_text = stderr.decode("utf-8", errors="replace")
                 if process.returncode != 0:
                     lowered = stderr_text.lower()
