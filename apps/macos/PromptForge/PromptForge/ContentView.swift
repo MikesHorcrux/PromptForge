@@ -1,10 +1,124 @@
+import AppKit
 import SwiftUI
 
-private let appAccent = Color(nsColor: .controlAccentColor)
-private let panelBackground = Color(nsColor: .controlBackgroundColor)
-private let sidebarBackground = Color(nsColor: .underPageBackgroundColor)
-private let canvasBackground = Color(nsColor: .windowBackgroundColor)
-private let borderColor = Color.black.opacity(0.08)
+private func forgeColor(
+    lightRed: Double,
+    lightGreen: Double,
+    lightBlue: Double,
+    darkRed: Double,
+    darkGreen: Double,
+    darkBlue: Double,
+    alpha: Double = 1.0
+) -> Color {
+    Color(nsColor: NSColor(name: nil) { appearance in
+        let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
+        if bestMatch == .darkAqua {
+            return NSColor(
+                red: darkRed,
+                green: darkGreen,
+                blue: darkBlue,
+                alpha: alpha
+            )
+        }
+        return NSColor(
+            red: lightRed,
+            green: lightGreen,
+            blue: lightBlue,
+            alpha: alpha
+        )
+    })
+}
+
+private let appAccent = forgeColor(
+    lightRed: 0.84, lightGreen: 0.39, lightBlue: 0.05,
+    darkRed: 0.94, darkGreen: 0.52, darkBlue: 0.16
+)
+private let forgeGlow = forgeColor(
+    lightRed: 0.95, lightGreen: 0.66, lightBlue: 0.24,
+    darkRed: 0.99, darkGreen: 0.77, darkBlue: 0.43
+)
+private let panelBackground = forgeColor(
+    lightRed: 0.96, lightGreen: 0.92, lightBlue: 0.88,
+    darkRed: 0.16, darkGreen: 0.10, darkBlue: 0.08
+)
+private let sidebarBackground = forgeColor(
+    lightRed: 0.92, lightGreen: 0.88, lightBlue: 0.83,
+    darkRed: 0.12, darkGreen: 0.08, darkBlue: 0.06
+)
+private let canvasBackground = forgeColor(
+    lightRed: 0.99, lightGreen: 0.97, lightBlue: 0.94,
+    darkRed: 0.09, darkGreen: 0.06, darkBlue: 0.05
+)
+private let inputBackground = forgeColor(
+    lightRed: 1.0, lightGreen: 0.98, lightBlue: 0.95,
+    darkRed: 0.12, darkGreen: 0.08, darkBlue: 0.06
+)
+private let borderColor = forgeColor(
+    lightRed: 0.79, lightGreen: 0.49, lightBlue: 0.22,
+    darkRed: 0.69, darkGreen: 0.38, darkBlue: 0.16,
+    alpha: 0.26
+)
+private let forgeBackdrop = LinearGradient(
+    colors: [
+        forgeColor(
+            lightRed: 0.96, lightGreen: 0.91, lightBlue: 0.82,
+            darkRed: 0.17, darkGreen: 0.09, darkBlue: 0.05
+        ),
+        forgeColor(
+            lightRed: 0.98, lightGreen: 0.95, lightBlue: 0.90,
+            darkRed: 0.09, darkGreen: 0.06, darkBlue: 0.05
+        ),
+        forgeColor(
+            lightRed: 0.93, lightGreen: 0.89, lightBlue: 0.84,
+            darkRed: 0.05, darkGreen: 0.03, darkBlue: 0.03
+        ),
+    ],
+    startPoint: .topLeading,
+    endPoint: .bottomTrailing
+)
+private let forgePanelFill = LinearGradient(
+    colors: [
+        forgeColor(
+            lightRed: 0.99, lightGreen: 0.95, lightBlue: 0.91,
+            darkRed: 0.21, darkGreen: 0.13, darkBlue: 0.09,
+            alpha: 0.98
+        ),
+        forgeColor(
+            lightRed: 0.96, lightGreen: 0.91, lightBlue: 0.86,
+            darkRed: 0.14, darkGreen: 0.09, darkBlue: 0.07,
+            alpha: 0.98
+        ),
+    ],
+    startPoint: .topLeading,
+    endPoint: .bottomTrailing
+)
+
+private struct EmberSpec: Identifiable {
+    let id: Int
+    let x: CGFloat
+    let baseY: CGFloat
+    let drift: CGFloat
+    let size: CGFloat
+    let speed: Double
+    let phase: Double
+    let opacity: Double
+}
+
+private let forgeEmbers: [EmberSpec] = [
+    .init(id: 0, x: 0.08, baseY: 0.92, drift: 0.26, size: 4, speed: 0.07, phase: 0.0, opacity: 0.34),
+    .init(id: 1, x: 0.14, baseY: 0.88, drift: 0.30, size: 3, speed: 0.09, phase: 1.2, opacity: 0.28),
+    .init(id: 2, x: 0.18, baseY: 0.95, drift: 0.22, size: 5, speed: 0.06, phase: 2.4, opacity: 0.32),
+    .init(id: 3, x: 0.24, baseY: 0.90, drift: 0.24, size: 3, speed: 0.08, phase: 0.8, opacity: 0.26),
+    .init(id: 4, x: 0.30, baseY: 0.94, drift: 0.20, size: 4, speed: 0.05, phase: 1.8, opacity: 0.30),
+    .init(id: 5, x: 0.37, baseY: 0.89, drift: 0.28, size: 3, speed: 0.07, phase: 3.2, opacity: 0.22),
+    .init(id: 6, x: 0.44, baseY: 0.93, drift: 0.18, size: 5, speed: 0.04, phase: 0.5, opacity: 0.18),
+    .init(id: 7, x: 0.52, baseY: 0.91, drift: 0.23, size: 4, speed: 0.08, phase: 2.9, opacity: 0.24),
+    .init(id: 8, x: 0.61, baseY: 0.96, drift: 0.17, size: 4, speed: 0.05, phase: 1.1, opacity: 0.20),
+    .init(id: 9, x: 0.69, baseY: 0.90, drift: 0.25, size: 3, speed: 0.09, phase: 2.1, opacity: 0.24),
+    .init(id: 10, x: 0.77, baseY: 0.93, drift: 0.19, size: 5, speed: 0.06, phase: 0.3, opacity: 0.28),
+    .init(id: 11, x: 0.84, baseY: 0.88, drift: 0.32, size: 3, speed: 0.10, phase: 1.7, opacity: 0.22),
+    .init(id: 12, x: 0.91, baseY: 0.95, drift: 0.21, size: 4, speed: 0.06, phase: 2.7, opacity: 0.24),
+]
 
 private enum WorkspaceNavigatorSelection: Hashable {
     case promptFile(String)
@@ -26,6 +140,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1540, minHeight: 900)
+        .tint(appAccent)
         .sheet(isPresented: $model.showSettings) {
             SettingsSheet()
                 .environmentObject(model)
@@ -73,7 +188,7 @@ struct ContentView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(canvasBackground)
+        .background(ForgeAmbientBackground().ignoresSafeArea())
     }
 
     private var workspaceView: some View {
@@ -117,6 +232,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(ForgeAmbientBackground().ignoresSafeArea())
         .onAppear {
             ensureValidSelection()
         }
@@ -164,7 +280,7 @@ struct ContentView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    NavigatorSection(title: "Prompt Packs") {
+                    NavigatorSection(title: "Prompts") {
                         ForEach(model.prompts) { prompt in
                             VStack(alignment: .leading, spacing: 4) {
                                 Button {
@@ -189,7 +305,7 @@ struct ContentView: View {
                                             setSelection(.promptFile(file))
                                         } label: {
                                             NavigatorRow(
-                                                title: file,
+                                                title: promptFileTitle(for: file),
                                                 subtitle: promptFileSubtitle(for: file),
                                                 systemImage: iconName(forPromptFile: file),
                                                 isSelected: resolvedSelection == .promptFile(file),
@@ -203,7 +319,7 @@ struct ContentView: View {
                                         setSelection(.playground)
                                     } label: {
                                         NavigatorRow(
-                                            title: "try_input.json",
+                                            title: "Try Input",
                                             subtitle: "Scratch input sandbox",
                                             systemImage: "play.square",
                                             isSelected: resolvedSelection == .playground,
@@ -216,9 +332,9 @@ struct ContentView: View {
                         }
                     }
 
-                    NavigatorSection(title: "Case Sets") {
+                    NavigatorSection(title: "Cases") {
                         if model.scenarioSuites.isEmpty {
-                            NavigatorPlaceholder(text: "No case sets yet")
+                            NavigatorPlaceholder(text: "No saved cases yet")
                         } else {
                             ForEach(model.scenarioSuites) { suite in
                                 Button {
@@ -334,25 +450,33 @@ struct ContentView: View {
     }
 
     private var promptFileItems: [String] {
-        let preferredOrder = ["system.md", "user_template.md", "prompt.json", "manifest.yaml", "variables.schema.json"]
+        let preferredOrder = ["system.md", "user_template.md", "prompt.json"]
         let available = Set(model.promptFiles)
         let ordered = preferredOrder.filter { available.contains($0) }
-        let extras = model.promptFiles.filter { !preferredOrder.contains($0) }.sorted()
-        return ordered + extras
+        return ordered
+    }
+
+    private func promptFileTitle(for file: String) -> String {
+        switch file {
+        case "system.md":
+            return "System Prompt"
+        case "user_template.md":
+            return "User Template"
+        case "prompt.json":
+            return "Prompt Settings"
+        default:
+            return file
+        }
     }
 
     private func promptFileSubtitle(for file: String) -> String {
         switch file {
         case "system.md":
-            return "Core prompt instructions"
+            return "Core instructions"
         case "user_template.md":
-            return "Rendered with each case input"
+            return "Rendered with each case"
         case "prompt.json":
-            return "Brief and authoring metadata"
-        case "manifest.yaml":
-            return "Prompt pack manifest"
-        case "variables.schema.json":
-            return "Input schema"
+            return "Metadata and ownership"
         default:
             return "Project file"
         }
@@ -366,10 +490,6 @@ struct ContentView: View {
             return "curlybraces.square"
         case "prompt.json":
             return "slider.horizontal.3"
-        case "manifest.yaml":
-            return "list.bullet.rectangle"
-        case "variables.schema.json":
-            return "checklist.checked"
         default:
             return "doc"
         }
@@ -534,9 +654,10 @@ private struct WorkspaceTopBar: View {
     private var breadcrumbTitle: String {
         switch selection {
         case .promptFile(let file):
-            return "\(model.currentPromptName) / \(file)"
+            let fileTitle = file == "prompt.json" ? "Prompt Settings" : file
+            return "\(model.currentPromptName) / \(fileTitle)"
         case .playground:
-            return "\(model.currentPromptName) / try_input.json"
+            return "\(model.currentPromptName) / Try Input"
         case .caseSet(let suiteID):
             let suiteName = model.scenarioSuites.first(where: { $0.suiteID == suiteID })?.name ?? "Case Set"
             return "\(model.projectName) / scenarios / \(suiteName)"
@@ -567,7 +688,7 @@ private struct WorkspaceTopBar: View {
         switch selection {
         case .promptFile(let file):
             if file == "system.md" || file == "user_template.md" {
-                return "This is the live prompt document. Edit it here, use the copilot below, then run checks from the toolbar."
+                return "This is the live prompt document. Edit it here, ask Forgie in the next pane, then run checks from the toolbar."
             }
             return "This file is part of the prompt pack. Edit metadata here, use the inspector for context, and run checks from the toolbar."
         case .playground:
@@ -640,12 +761,12 @@ private struct NavigatorRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected ? appAccent.opacity(0.10) : Color.clear)
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isSelected ? appAccent.opacity(0.16) : Color.clear)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(isSelected ? appAccent.opacity(0.28) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? appAccent.opacity(0.35) : Color.clear, lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 10))
     }
@@ -697,26 +818,26 @@ private struct WorkspaceInspectorPane: View {
 
     @ViewBuilder
     private var promptInspector: some View {
-        PanelCard(title: "Prompt Pack") {
+        PanelCard(title: "Prompt Status") {
             VStack(alignment: .leading, spacing: 12) {
-                Text(model.currentPromptDescription.isEmpty ? "This inspector summarizes the active prompt pack, its baseline relationship, and the current editing configuration." : model.currentPromptDescription)
+                Text(model.currentPromptDescription.isEmpty ? "Keep the prompt tight here: baseline, current score, and the small amount of metadata you actually need while editing." : model.currentPromptDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 10) {
                     SoftBadge(label: "Prompt", value: model.selectedPrompt ?? "--")
                     SoftBadge(label: "Baseline", value: model.promptDraft.baselinePromptRef.isEmpty ? (model.selectedPrompt ?? "--") : model.promptDraft.baselinePromptRef)
-                    SoftBadge(label: "Quick Score", value: model.latestScoreLine)
+                    SoftBadge(label: "Score", value: model.latestScoreLine)
                 }
 
                 HStack(spacing: 10) {
                     SoftBadge(label: "Provider", value: model.providerLine)
-                    SoftBadge(label: "Case Sets", value: "\(model.scenarioSuites.count)")
+                    SoftBadge(label: "Cases", value: "\(model.scenarioSuites.count)")
                     SoftBadge(label: "Results", value: "\(model.reviews.count)")
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Prompt Root")
+                    Text("Open Folder")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(model.promptRootPath.isEmpty ? "No prompt pack selected." : model.promptRootPath)
@@ -735,17 +856,14 @@ private struct WorkspaceInspectorPane: View {
 
         BuilderControlsCard()
             .environmentObject(model)
-
-        BuilderActionsCard()
-            .environmentObject(model)
     }
 
     @ViewBuilder
     private var casesInspector: some View {
-        PanelCard(title: "Case Set Inspector") {
+        PanelCard(title: "Cases") {
             VStack(alignment: .leading, spacing: 12) {
                 if let suite = model.activeScenarioSuite {
-                    Text("This case set is the saved product contract for `\(suite.name)`. Edit the suite here, keep the selected case in the editor, and run the set against the current prompt when ready.")
+                    Text("This saved case set is the product contract for `\(suite.name)`. Edit the suite here, keep the selected case in the editor, and run it when you want a real answer on regressions.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -898,7 +1016,7 @@ private struct PlaygroundWorkspacePane: View {
     var body: some View {
         VStack(spacing: 0) {
             DocumentHeaderBar(
-                title: "try_input.json",
+                title: "Try Input",
                 subtitle: "Scratch input sandbox for the active prompt.",
                 accessory: model.latestPlaygroundRun.map { "Last run \($0.createdAt)" }
             )
@@ -1031,9 +1149,9 @@ private struct PromptMetadataDocument: View {
     var body: some View {
         VStack(spacing: 0) {
             DocumentHeaderBar(
-                title: "prompt.json",
-                subtitle: "Metadata, ownership, and release notes for this prompt pack.",
-                accessory: model.selectedPrompt
+                title: "Prompt Settings",
+                subtitle: "Metadata, ownership, baseline, and release notes for this prompt.",
+                accessory: "prompt.json"
             )
             Divider()
             ScrollView {
@@ -1193,6 +1311,63 @@ private struct DocumentHeaderBar: View {
     }
 }
 
+private struct ForgeAmbientBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let glowOpacity = colorScheme == .dark ? 0.28 : 0.14
+            let emberOpacity = colorScheme == .dark ? 1.0 : 0.55
+
+            ZStack {
+                forgeBackdrop
+
+                RadialGradient(
+                    colors: [
+                        forgeGlow.opacity(glowOpacity + 0.05 * sin(time * 1.6)),
+                        appAccent.opacity(glowOpacity * 0.55),
+                        .clear,
+                    ],
+                    center: .center,
+                    startRadius: 18,
+                    endRadius: 240
+                )
+                .frame(width: 420, height: 320)
+                .offset(x: 520, y: 320 + 10 * sin(time * 1.9))
+                .blur(radius: 10)
+
+                RadialGradient(
+                    colors: [
+                        appAccent.opacity((colorScheme == .dark ? 0.10 : 0.05) + 0.03 * sin(time * 2.8 + 0.8)),
+                        .clear,
+                    ],
+                    center: .center,
+                    startRadius: 8,
+                    endRadius: 180
+                )
+                .frame(width: 280, height: 220)
+                .offset(x: -520, y: 360 + 8 * sin(time * 2.2))
+                .blur(radius: 18)
+
+                Canvas { context, size in
+                    for ember in forgeEmbers {
+                        let progress = (time * ember.speed + ember.phase).truncatingRemainder(dividingBy: 1.0)
+                        let drift = CGFloat(progress) * ember.drift * size.height
+                        let x = size.width * ember.x + CGFloat(sin(time * ember.speed * 9 + ember.phase)) * 14
+                        let y = size.height * ember.baseY - drift
+                        let pulse = 0.45 + 0.55 * ((sin(time * 5.5 + ember.phase) + 1) / 2)
+                        let radius = ember.size * (0.9 + pulse * 0.45)
+                        let rect = CGRect(x: x, y: y, width: radius, height: radius)
+                        context.fill(Path(ellipseIn: rect), with: .color(forgeGlow.opacity(ember.opacity * pulse * emberOpacity)))
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
 private struct PromptSidebarRow: View {
     let prompt: PromptSummaryModel
     let isSelected: Bool
@@ -1262,14 +1437,14 @@ private struct TopBarActionButtonStyle: ButtonStyle {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.black.opacity(configuration.isPressed ? 0.08 : 0.03))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(appAccent.opacity(configuration.isPressed ? 0.24 : 0.12))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(borderColor, lineWidth: 1)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -1382,8 +1557,12 @@ private struct BuilderControlsCard: View {
     private let researchPolicies = ["prompt_only", "allow_external"]
 
     var body: some View {
-        PanelCard(title: "Builder Controls") {
+        PanelCard(title: "Forgie") {
             VStack(alignment: .leading, spacing: 12) {
+                Text("Forgie the forge fox can either stage edits for review or apply them directly. Keep the controls small and stay focused on the prompt.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 LabeledField(label: "Agent Model", text: $model.promptDraft.builderAgentModel)
 
                 LabeledRow(label: "Permission Mode") {
@@ -1420,12 +1599,15 @@ private struct StudioChatPane: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Copilot")
-                            .font(.headline)
-                        Text("Chat about edits, failures, or what to improve. Run and system activity lives in the inspector, not in this thread.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        ForgieStatusGlyph(active: model.isBusy)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Forgie")
+                                .font(.headline)
+                            Text("The forge fox for edits, failures, and prompt review. System activity lives in the inspector so this thread stays conversational.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     if model.isBusy {
@@ -1437,7 +1619,7 @@ private struct StudioChatPane: View {
                 if let pending = model.pendingProposal {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Pending proposal")
+                            Text("Pending edit")
                                 .font(.caption.weight(.semibold))
                             Text(pending.summary)
                                 .font(.caption)
@@ -1455,9 +1637,9 @@ private struct StudioChatPane: View {
                         .buttonStyle(.bordered)
                     }
                     .padding(12)
-                    .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                    .background(inputBackground, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 12)
                             .stroke(borderColor, lineWidth: 1)
                     )
                 }
@@ -1468,9 +1650,9 @@ private struct StudioChatPane: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if conversationEntries.isEmpty {
-                            PanelCard(title: "Start Here") {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Try asking:")
+                            PanelCard(title: "Ask Forgie") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Try asking Forgie:")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
                                     Text("Tighten the tone and make the refund policy clearer.")
@@ -1507,12 +1689,12 @@ private struct StudioChatPane: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 10) {
-                TextField("Ask Copilot to edit, explain, or review the prompt", text: $model.draftMessage, axis: .vertical)
+                TextField("Ask Forgie to edit, explain, or review the prompt", text: $model.draftMessage, axis: .vertical)
                     .textFieldStyle(.plain)
                     .padding(12)
-                    .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                    .background(inputBackground, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 12)
                             .stroke(borderColor, lineWidth: 1)
                     )
                     .lineLimit(1 ... 5)
@@ -1527,7 +1709,7 @@ private struct StudioChatPane: View {
                     Button("Send") {
                         model.submitDraft()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding(16)
@@ -1962,16 +2144,73 @@ private struct ForgieMark: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(panelBackground)
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            forgeGlow.opacity(active ? 0.42 : 0.18),
+                            appAccent.opacity(active ? 0.26 : 0.10),
+                            Color.clear,
+                        ],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: size * 0.55
+                    )
+                )
                 .overlay(
                     Circle()
-                        .stroke(borderColor, lineWidth: 1)
+                        .fill(Color(red: 0.23, green: 0.13, blue: 0.08))
+                        .padding(size * 0.08)
                 )
-            Circle()
-                .fill(active ? appAccent : .secondary.opacity(0.35))
+                .overlay(
+                    Circle()
+                        .stroke(borderColor, lineWidth: 1.2)
+                )
+            FoxEarShape()
+                .fill(appAccent)
                 .frame(width: size * 0.24, height: size * 0.24)
+                .offset(x: -size * 0.16, y: -size * 0.24)
+            FoxEarShape()
+                .fill(appAccent)
+                .frame(width: size * 0.24, height: size * 0.24)
+                .offset(x: size * 0.16, y: -size * 0.24)
+            FoxEarShape()
+                .fill(forgeGlow.opacity(0.82))
+                .frame(width: size * 0.12, height: size * 0.12)
+                .offset(x: -size * 0.16, y: -size * 0.22)
+            FoxEarShape()
+                .fill(forgeGlow.opacity(0.82))
+                .frame(width: size * 0.12, height: size * 0.12)
+                .offset(x: size * 0.16, y: -size * 0.22)
+            Circle()
+                .fill(forgeGlow.opacity(0.92))
+                .frame(width: size * 0.42, height: size * 0.30)
+                .offset(y: size * 0.14)
+            HStack(spacing: size * 0.15) {
+                Circle()
+                    .fill(Color.black.opacity(0.72))
+                    .frame(width: size * 0.06, height: size * 0.06)
+                Circle()
+                    .fill(Color.black.opacity(0.72))
+                    .frame(width: size * 0.06, height: size * 0.06)
+            }
+            .offset(y: -size * 0.02)
+            Circle()
+                .fill(Color.black.opacity(0.65))
+                .frame(width: size * 0.08, height: size * 0.08)
+                .offset(y: size * 0.10)
         }
         .frame(width: size, height: size)
+    }
+}
+
+private struct FoxEarShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -2416,7 +2655,7 @@ private struct ActivityFeedCard: View {
     @EnvironmentObject private var model: PromptForgeAppModel
 
     var body: some View {
-        PanelCard(title: "Activity") {
+        PanelCard(title: "Forge Log") {
             if activityEntries.isEmpty {
                 Text("Run status, helper messages, and warnings will appear here.")
                     .foregroundStyle(.secondary)
@@ -2706,11 +2945,12 @@ private struct PanelCard<Content: View>: View {
             content
         }
         .padding(16)
-        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+        .background(forgePanelFill, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(borderColor, lineWidth: 1)
         )
+        .shadow(color: appAccent.opacity(0.10), radius: 18, x: 0, y: 10)
     }
 }
 
@@ -2725,9 +2965,9 @@ private struct SettingsCard<Content: View>: View {
             content
         }
         .padding(16)
-        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+        .background(forgePanelFill, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(borderColor, lineWidth: 1)
         )
     }
@@ -2762,9 +3002,9 @@ private struct LabeledTextEditor: View {
                 .font(font)
                 .frame(minHeight: minHeight)
                 .padding(10)
-                .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                .background(inputBackground, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 10)
                         .stroke(borderColor, lineWidth: 1)
                 )
         }
@@ -2785,9 +3025,9 @@ private struct LabeledReadOnlyCode: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
-                .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                .background(inputBackground, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 10)
                         .stroke(borderColor, lineWidth: 1)
                 )
         }
@@ -2807,9 +3047,9 @@ private struct LabeledField: View {
             TextField(label, text: $text)
                 .textFieldStyle(.plain)
                 .padding(10)
-                .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                .background(inputBackground, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 10)
                         .stroke(borderColor, lineWidth: 1)
                 )
         }
@@ -2897,7 +3137,7 @@ private struct ChatMessageBubble: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(entry.role == .user ? appAccent.opacity(0.14) : panelBackground)
+                .fill(entry.role == .user ? appAccent.opacity(0.20) : inputBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -2921,7 +3161,7 @@ private struct SoftBadge: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(panelBackground, in: Capsule())
+        .background(inputBackground, in: Capsule())
         .overlay(
             Capsule()
                 .stroke(borderColor, lineWidth: 1)
