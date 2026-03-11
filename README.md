@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/promptforge-banner.png" alt="PromptForge banner" width="100%" />
+</p>
+
 # PromptForge
 
 _Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
