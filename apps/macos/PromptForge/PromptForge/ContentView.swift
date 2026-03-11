@@ -1,7 +1,10 @@
 import SwiftUI
 
-private let emberAccent = Color(red: 0.84, green: 0.47, blue: 0.18)
-private let parchmentTint = Color(red: 0.96, green: 0.94, blue: 0.90)
+private let appAccent = Color(nsColor: .controlAccentColor)
+private let panelBackground = Color(nsColor: .controlBackgroundColor)
+private let sidebarBackground = Color(nsColor: .underPageBackgroundColor)
+private let canvasBackground = Color(nsColor: .windowBackgroundColor)
+private let borderColor = Color.black.opacity(0.08)
 
 struct ContentView: View {
     @EnvironmentObject private var model: PromptForgeAppModel
@@ -26,59 +29,43 @@ struct ContentView: View {
     }
 
     private var onboardingView: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    parchmentTint,
-                    emberAccent.opacity(0.12),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+        VStack(alignment: .leading, spacing: 24) {
+            Text("PromptForge")
+                .font(.system(size: 34, weight: .semibold))
+            Text("Open a project, edit prompts, run checks, and review changes.")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 560, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 18) {
-                ForgieOnboardingCard()
+            HStack(spacing: 12) {
+                Button("Open Project") {
+                    model.chooseProjectFolder()
+                }
+                .buttonStyle(.borderedProminent)
 
-                Text("PromptForge")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                Text("A native prompt studio for writing with an agent, testing behavior, and reviewing changes before you ship.")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: 620, alignment: .leading)
-
-                HStack(spacing: 12) {
-                    Button("Choose Project Folder") {
-                        model.chooseProjectFolder()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    if let savedProject = model.savedProjectHint {
-                        Button("Reopen \(savedProject)") {
-                            Task {
-                                await model.openProject(at: savedProject)
-                            }
+                if let savedProject = model.savedProjectHint {
+                    Button("Reopen \(savedProject)") {
+                        Task {
+                            await model.openProject(at: savedProject)
                         }
-                        .buttonStyle(.bordered)
                     }
+                    .buttonStyle(.bordered)
                 }
-
-                Text("Forgie guides onboarding, editing, scenario checks, and review. Open a PromptForge project to begin.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let errorText = model.launchError, !errorText.isEmpty {
-                    Text(errorText)
-                        .foregroundStyle(.red)
-                        .padding(12)
-                        .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                }
-
-                Spacer()
             }
-            .padding(36)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            if let errorText = model.launchError, !errorText.isEmpty {
+                Text(errorText)
+                    .foregroundStyle(.red)
+                    .padding(12)
+                    .frame(maxWidth: 520, alignment: .leading)
+                    .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            Spacer()
         }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(canvasBackground)
     }
 
     private var workspaceView: some View {
@@ -86,48 +73,37 @@ struct ContentView: View {
             sidebarView
         } detail: {
             detailView
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(canvasBackground)
         }
         .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Picker("Workspace", selection: $model.selectedWorkspaceMode) {
-                    ForEach(PromptWorkspaceMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
+                HStack(spacing: 10) {
+                    Text(model.currentPromptName.isEmpty ? (model.selectedPrompt ?? model.projectName) : model.currentPromptName)
+                        .font(.headline)
+                    if let selectedPrompt = model.selectedPrompt {
+                        Text(selectedPrompt)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 260)
             }
 
             ToolbarItemGroup {
-                Button("Quick Check") {
-                    model.runQuickBenchmark()
-                }
-                .disabled(model.selectedPrompt == nil)
-
-                Button("Run Suite") {
-                    model.runScenarioReview()
-                }
-                .disabled(model.selectedPrompt == nil || model.selectedSuite == nil)
-
-                Button("Playground") {
-                    model.runPlayground()
-                }
-                .disabled(model.selectedPrompt == nil)
-
-                Button("Review") {
-                    model.showReview()
-                }
-                .disabled(model.reviews.isEmpty)
-
-                Button("Commands") {
-                    model.openCommandBar()
-                }
-
-                Button("Settings") {
-                    model.openSettings()
-                }
+                Button("Studio") { model.showStudio() }
+                    .disabled(model.selectedPrompt == nil)
+                Button("Tests") { model.showTests() }
+                    .disabled(model.selectedPrompt == nil)
+                Button("Review") { model.showReview() }
+                    .disabled(model.reviews.isEmpty)
+                Button("Run") { model.runQuickBenchmark() }
+                    .disabled(model.selectedPrompt == nil)
+                Button("Suite") { model.runScenarioReview() }
+                    .disabled(model.selectedPrompt == nil || model.selectedSuite == nil)
+                Button("Playground") { model.runPlayground() }
+                    .disabled(model.selectedPrompt == nil)
+                Button("Commands") { model.openCommandBar() }
+                Button("Settings") { model.openSettings() }
             }
         }
     }
@@ -143,18 +119,19 @@ struct ContentView: View {
                     .lineLimit(2)
 
                 HStack(spacing: 8) {
+                    Button("Open") {
+                        model.chooseProjectFolder()
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("New Prompt") {
                         model.createPromptShortcut()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("New Suite") {
-                        model.createScenarioShortcut()
                     }
                     .buttonStyle(.bordered)
                 }
             }
             .padding(16)
+            .background(sidebarBackground)
 
             List {
                 Section("Prompts") {
@@ -169,43 +146,10 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                     }
                 }
-
-                Section("Scenario Suites") {
-                    ForEach(model.scenarioSuites) { suite in
-                        Button {
-                            model.selectSuite(suite.suiteID)
-                            model.showTests()
-                        } label: {
-                            SidebarMetaRow(
-                                title: suite.name,
-                                subtitle: "\(suite.cases.count) cases",
-                                isSelected: model.selectedSuiteID == suite.suiteID && model.selectedWorkspaceMode == .tests
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                Section("Recent Reviews") {
-                    ForEach(Array(model.reviews.suffix(8).reversed())) { review in
-                        Button {
-                            model.selectedReviewID = review.reviewID
-                            model.selectedReviewCaseID = review.cases.first?.caseID
-                            model.showReview()
-                        } label: {
-                            SidebarMetaRow(
-                                title: review.suiteName,
-                                subtitle: review.createdAt,
-                                isSelected: model.selectedReviewID == review.reviewID && model.selectedWorkspaceMode == .review
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
             }
             .listStyle(.sidebar)
         }
-        .background(parchmentTint.opacity(0.25))
+        .background(sidebarBackground)
     }
 
     @ViewBuilder
@@ -227,14 +171,14 @@ struct ContentView: View {
     private var emptyPromptView: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Select a Prompt")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-            Text("Open a prompt to work in Studio, manage scenario suites, or review the latest change.")
+                .font(.system(size: 28, weight: .semibold))
+            Text("Pick a prompt from the sidebar to open the IDE.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Button("New Prompt") {
                     model.createPromptShortcut()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
 
                 Button("Open Settings") {
                     model.openSettings()
@@ -250,25 +194,11 @@ struct ContentView: View {
         HSplitView {
             StudioChatPane()
                 .environmentObject(model)
+                .frame(minWidth: 420, idealWidth: 520)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    StudioHeaderCard()
-                        .environmentObject(model)
-                    BuilderControlsCard()
-                        .environmentObject(model)
-                    PromptCanvasCard()
-                        .environmentObject(model)
-                    PlaygroundCard()
-                        .environmentObject(model)
-                    BuilderActionsCard()
-                        .environmentObject(model)
-                    PromptDiffCard()
-                        .environmentObject(model)
-                }
-                .padding(20)
-            }
-            .frame(minWidth: 620)
+            PromptIDEPane()
+                .environmentObject(model)
+                .frame(minWidth: 620, idealWidth: 820)
         }
     }
 
@@ -287,7 +217,7 @@ struct ContentView: View {
                             ScenarioCaseEditorCard()
                                 .environmentObject(model)
                         }
-                        .padding(20)
+                        .padding(16)
                     }
                     .frame(minWidth: 640)
                 }
@@ -371,19 +301,19 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .padding(20)
+                        .padding(16)
                     }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("No Review Yet")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.system(size: 28, weight: .semibold))
                     Text("Run a scenario suite to generate a review with regressions, diffs, and decisions.")
                         .foregroundStyle(.secondary)
                     Button("Run Selected Suite") {
                         model.runScenarioReview()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .disabled(model.selectedSuite == nil)
                 }
                 .padding(30)
@@ -419,8 +349,8 @@ private struct SidebarMetaRow: View {
                 Spacer()
                 if isSelected {
                     Circle()
-                        .fill(emberAccent)
-                        .frame(width: 7, height: 7)
+                        .fill(appAccent)
+                        .frame(width: 6, height: 6)
                 }
             }
             Text(subtitle)
@@ -466,6 +396,72 @@ private struct StudioHeaderCard: View {
                 }
             }
         }
+    }
+}
+
+private struct PromptIDEPane: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+
+    var body: some View {
+        VSplitView {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("prompt.md")
+                        .font(.headline)
+                    Text(model.selectedPrompt ?? "--")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if let notice = model.promptSaveNotice, !notice.isEmpty {
+                        Text(notice)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if model.promptHasUnsavedChanges {
+                        Text("Unsaved changes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                Divider()
+
+                TextEditor(text: $model.promptDraft.systemPrompt)
+                    .font(.system(.body, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(canvasBackground)
+            }
+            .background(canvasBackground)
+
+            if !model.promptDiffPreview.isEmpty {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Diff")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
+                    Divider()
+
+                    ScrollView {
+                        Text(model.promptDiffPreview)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                    }
+                }
+                .background(sidebarBackground)
+                .frame(minHeight: 180, idealHeight: 220)
+            }
+        }
+        .background(canvasBackground)
     }
 }
 
@@ -557,7 +553,13 @@ private struct StudioChatPane: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Ask Forgie to edit, explain, or review the prompt", text: $model.draftMessage, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .padding(12)
+                    .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(borderColor, lineWidth: 1)
+                    )
                     .lineLimit(1 ... 5)
                     .onSubmit {
                         model.submitDraft()
@@ -574,13 +576,13 @@ private struct StudioChatPane: View {
                     Button("Send") {
                         model.submitDraft()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                 }
             }
             .padding(16)
         }
         .frame(minWidth: 360, idealWidth: 390)
-        .background(parchmentTint.opacity(0.18))
+        .background(sidebarBackground)
     }
 }
 
@@ -612,7 +614,7 @@ private struct PromptCanvasCard: View {
                     Button("Save Workspace") {
                         model.savePromptWorkspace()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
 
                     Button("Quick Check") {
                         model.runQuickBenchmark()
@@ -657,7 +659,7 @@ private struct PlaygroundCard: View {
                     Button("Run Playground") {
                         model.runPlayground()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                 }
 
                 if let run = model.latestPlaygroundRun {
@@ -723,7 +725,7 @@ private struct BuilderActionsCard: View {
                                 if action.usedResearch {
                                     Text("external research")
                                         .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(emberAccent)
+                                        .foregroundStyle(appAccent)
                                 }
                             }
                         }
@@ -774,7 +776,11 @@ private struct PromptBlocksCard: View {
                                 .font(.system(.body, design: .monospaced))
                                 .frame(minHeight: 110)
                                 .padding(10)
-                                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+                                .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(borderColor, lineWidth: 1)
+                                )
                             HStack(spacing: 10) {
                                 Button("Insert into Prompt") {
                                     model.insertPromptBlock(block.blockID)
@@ -787,7 +793,11 @@ private struct PromptBlocksCard: View {
                             }
                         }
                         .padding(12)
-                        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
+                        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(borderColor, lineWidth: 1)
+                        )
                     }
                 }
             }
@@ -844,7 +854,7 @@ private struct CommandPaletteSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Command Bar")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 24, weight: .semibold))
                 Spacer()
                 Button("Close") {
                     model.closeCommandBar()
@@ -878,7 +888,7 @@ private struct CommandPaletteSheet: View {
         }
         .padding(24)
         .frame(minWidth: 560, minHeight: 420)
-        .background(parchmentTint.opacity(0.65))
+        .background(canvasBackground)
     }
 
     private var filteredCommands: [CommandPaletteItem] {
@@ -965,14 +975,18 @@ private struct ForgieOnboardingCard: View {
             ForgieMark(size: 120, active: true)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Forgie")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                Text("Your builder agent. Forgie lights up prompt edits, scenario checks, and review decisions without taking over the workspace.")
+                    .font(.system(size: 24, weight: .semibold))
+                Text("Your editing agent for prompts, checks, and reviews.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 420, alignment: .leading)
             }
         }
         .padding(18)
-        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 24))
+        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(borderColor, lineWidth: 1)
+        )
     }
 }
 
@@ -991,70 +1005,16 @@ private struct ForgieMark: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.98, green: 0.72, blue: 0.34), Color(red: 0.86, green: 0.42, blue: 0.14)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+                .fill(panelBackground)
+                .overlay(
+                    Circle()
+                        .stroke(borderColor, lineWidth: 1)
                 )
-            EarShape()
-                .fill(Color(red: 0.89, green: 0.46, blue: 0.16))
-                .frame(width: size * 0.26, height: size * 0.26)
-                .offset(x: -size * 0.2, y: -size * 0.42)
-            EarShape()
-                .fill(Color(red: 0.89, green: 0.46, blue: 0.16))
-                .frame(width: size * 0.26, height: size * 0.26)
-                .scaleEffect(x: -1, y: 1)
-                .offset(x: size * 0.2, y: -size * 0.42)
             Circle()
-                .fill(Color.white.opacity(0.92))
-                .frame(width: size * 0.62, height: size * 0.46)
-                .offset(y: size * 0.16)
-            HStack(spacing: size * 0.18) {
-                Circle().fill(.black.opacity(0.82)).frame(width: size * 0.08, height: size * 0.08)
-                Circle().fill(.black.opacity(0.82)).frame(width: size * 0.08, height: size * 0.08)
-            }
-            .offset(y: size * 0.03)
-            Circle()
-                .fill(Color.black.opacity(0.82))
-                .frame(width: size * 0.07, height: size * 0.05)
-                .offset(y: size * 0.16)
-            LanternGlyph(active: active)
-                .frame(width: size * 0.32, height: size * 0.42)
-                .offset(x: size * 0.34, y: size * 0.18)
+                .fill(active ? appAccent : .secondary.opacity(0.35))
+                .frame(width: size * 0.24, height: size * 0.24)
         }
         .frame(width: size, height: size)
-        .shadow(color: emberAccent.opacity(active ? 0.35 : 0.12), radius: active ? 18 : 8)
-    }
-}
-
-private struct LanternGlyph: View {
-    let active: Bool
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.black.opacity(0.38), lineWidth: 2)
-            RoundedRectangle(cornerRadius: 8)
-                .fill(active ? emberAccent.opacity(0.22) : Color.white.opacity(0.24))
-                .padding(4)
-            Circle()
-                .fill(active ? Color(red: 1.0, green: 0.83, blue: 0.36) : Color.white.opacity(0.5))
-                .frame(width: 14, height: 14)
-                .shadow(color: emberAccent.opacity(active ? 0.45 : 0.12), radius: active ? 10 : 3)
-        }
-    }
-}
-
-private struct EarShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -1070,7 +1030,7 @@ private struct FlowWrap: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white.opacity(0.45), in: Capsule())
+                    .background(panelBackground, in: Capsule())
             }
         }
     }
@@ -1092,7 +1052,7 @@ private struct ScenarioCaseNavigator: View {
                         Button("New Case") {
                             model.createScenarioCase()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.bordered)
 
                         Button("Duplicate") {
                             model.duplicateSelectedScenarioCase()
@@ -1122,7 +1082,7 @@ private struct ScenarioCaseNavigator: View {
                 }
             }
         }
-        .background(parchmentTint.opacity(0.16))
+        .background(sidebarBackground)
     }
 }
 
@@ -1149,7 +1109,7 @@ private struct ScenarioSuiteCard: View {
                     Button("Save Suite") {
                         model.saveScenarioSuite()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                 }
 
                 if let scenarioNotice = model.scenarioNotice, !scenarioNotice.isEmpty {
@@ -1272,7 +1232,11 @@ private struct ScenarioCaseEditorCard: View {
                                         }
                                     }
                                     .padding(12)
-                                    .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+                                    .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(borderColor, lineWidth: 1)
+                                    )
                                 }
                             }
                         }
@@ -1400,7 +1364,11 @@ private struct PlaygroundSampleCard: View {
                 .textSelection(.enabled)
         }
         .padding(12)
-        .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(borderColor, lineWidth: 1)
+        )
     }
 }
 
@@ -1420,7 +1388,7 @@ private struct ReviewCaseRow: View {
                 } else if reviewCase.flaky {
                     Text("Flaky")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 }
             }
             Text(reviewCase.caseID)
@@ -1510,7 +1478,7 @@ private struct SettingsSheet: View {
                 .padding(24)
             }
             .frame(minWidth: 820, minHeight: 720)
-            .background(parchmentTint.opacity(0.35))
+            .background(canvasBackground)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(model.isOnboarding ? "Later" : "Close") {
@@ -1521,7 +1489,7 @@ private struct SettingsSheet: View {
                     Button(model.isOnboarding ? "Finish Setup" : "Save") {
                         model.saveSettings()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                 }
             }
         }
@@ -1530,7 +1498,7 @@ private struct SettingsSheet: View {
     private var onboardingHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(model.isOnboarding ? "Welcome to PromptForge" : "Settings")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(.system(size: 28, weight: .semibold))
             Text(model.isOnboarding ? "Set up providers, default models, and how Forgie should work in this project." : "Update project defaults, model choices, and builder-agent behavior.")
                 .foregroundStyle(.secondary)
             if let notice = model.settingsNotice {
@@ -1607,7 +1575,7 @@ private struct SettingsSheet: View {
                         Spacer()
                         Text(status.ready ? "Connected" : "Needs auth")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(status.ready ? .green : .orange)
+                            .foregroundStyle(status.ready ? appAccent : .secondary)
                     }
                     Text(status.detail)
                         .font(.caption)
@@ -1636,7 +1604,7 @@ private struct SettingsSheet: View {
                             Button("Authenticate Codex") {
                                 model.launchCodexLogin()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.bordered)
                             Button("Refresh Status") {
                                 model.openSettings(onboarding: model.isOnboarding)
                             }
@@ -1645,7 +1613,11 @@ private struct SettingsSheet: View {
                     }
                 }
                 .padding(12)
-                .background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(borderColor, lineWidth: 1)
+                )
             }
         }
     }
@@ -1662,10 +1634,10 @@ private struct PanelCard<Content: View>: View {
             content
         }
         .padding(16)
-        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
+        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(.black.opacity(0.05), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(borderColor, lineWidth: 1)
         )
     }
 }
@@ -1681,7 +1653,11 @@ private struct SettingsCard<Content: View>: View {
             content
         }
         .padding(16)
-        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
+        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(borderColor, lineWidth: 1)
+        )
     }
 }
 
@@ -1714,7 +1690,11 @@ private struct LabeledTextEditor: View {
                 .font(font)
                 .frame(minHeight: minHeight)
                 .padding(10)
-                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+                .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(borderColor, lineWidth: 1)
+                )
         }
     }
 }
@@ -1733,7 +1713,11 @@ private struct LabeledReadOnlyCode: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
-                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+                .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(borderColor, lineWidth: 1)
+                )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1749,7 +1733,13 @@ private struct LabeledField: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             TextField(label, text: $text)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(10)
+                .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(borderColor, lineWidth: 1)
+                )
         }
     }
 }
@@ -1757,14 +1747,40 @@ private struct LabeledField: View {
 private struct PromptTextEditorCard: View {
     let title: String
     @Binding var text: String
+    var diffText: String = ""
 
     var body: some View {
         PanelCard(title: title) {
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 220)
-                .padding(10)
-                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 12) {
+                TextEditor(text: $text)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 320)
+                    .padding(10)
+                    .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(borderColor, lineWidth: 1)
+                    )
+
+                if !diffText.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Diff")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(diffText)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(borderColor, lineWidth: 1)
+                            )
+                    }
+                }
+            }
         }
     }
 }
@@ -1776,17 +1792,17 @@ private struct TranscriptBubble: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(entry.title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(entry.role.tint)
+                .foregroundStyle(.secondary)
             Text(entry.body)
                 .font(.system(.body, design: .monospaced))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(entry.role.background, in: RoundedRectangle(cornerRadius: 14))
+        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(entry.role.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(borderColor, lineWidth: 1)
         )
     }
 }
@@ -1805,6 +1821,10 @@ private struct SoftBadge: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(.white.opacity(0.45), in: Capsule())
+        .background(panelBackground, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(borderColor, lineWidth: 1)
+        )
     }
 }
