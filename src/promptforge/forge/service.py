@@ -1012,7 +1012,7 @@ class ForgeSession:
         run_benchmark: bool = True,
     ) -> ForgeRevision:
         prompt_pack = load_prompt_pack(prompt_dir)
-        revision_id = f"r{len(self.history.revisions):03d}"
+        revision_id = self._next_revision_id()
         snapshot_dir = self.revisions_dir / revision_id / "prompt_pack"
         snapshot_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(prompt_dir, snapshot_dir)
@@ -1074,6 +1074,16 @@ class ForgeSession:
                 note=note,
             )
         return revision
+
+    def _next_revision_id(self) -> str:
+        next_index = len(self.history.revisions)
+        for child in self.revisions_dir.iterdir() if self.revisions_dir.exists() else []:
+            if not child.is_dir():
+                continue
+            name = child.name
+            if len(name) == 4 and name.startswith("r") and name[1:].isdigit():
+                next_index = max(next_index, int(name[1:]) + 1)
+        return f"r{next_index:03d}"
 
     async def _ensure_baseline_benchmark(self) -> None:
         if not self.manifest.baseline_revision_id:

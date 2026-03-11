@@ -148,11 +148,11 @@ enum PromptWorkspaceMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .studio:
-            return "Studio"
+            return "Prompt"
         case .tests:
-            return "Tests"
+            return "Cases"
         case .review:
-            return "Review"
+            return "Results"
         }
     }
 }
