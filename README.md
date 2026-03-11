@@ -166,3 +166,7 @@ var/                          Generated logs, cache, forge sessions, and run art
 - Provider backends: [`src/promptforge/runtime/gateway.py`](src/promptforge/runtime/gateway.py)
 - Data models: [`src/promptforge/core/models.py`](src/promptforge/core/models.py)
 - Prompt and dataset loading: [`src/promptforge/prompts/loader.py`](src/promptforge/prompts/loader.py), [`src/promptforge/datasets/loader.py`](src/promptforge/datasets/loader.py)
+
+<p align="center">
+  <img src="docs/assets/promptforge-footer.png" alt="PromptForge footer banner" width="100%" />
+</p>
