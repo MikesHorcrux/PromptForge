@@ -1,15 +1,19 @@
 # Operations
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
-PromptForge is simple to operate because it is a local CLI process plus local
-artifacts. There is no daemon to restart and no external database to repair.
+PromptForge is simple to operate because it is a local macOS app plus local CLI
+and helper processes with local artifacts. There is no remote service tier and
+no external database to repair.
 
 The operational surface is:
 
 - `.env` for auth and defaults
+- macOS Keychain for app-managed OpenAI/OpenRouter API keys
 - `pf setup` and `pf doctor`
+- `PromptForge.app` plus its local helper for interactive work
 - `var/runs/` for run outputs
+- `var/forge/` for prompt workspace sessions, revisions, pending edits, and chat history
 - `var/state/cache.sqlite3` for cached model outputs
 - `var/logs/promptforge.log` for structured lifecycle logs
 
@@ -76,6 +80,18 @@ pf compare --a v1 --b v2 --dataset datasets/core.jsonl
 - read `scores.json` for machine-readable detail
 - read `run.lock.json` for reproducibility data
 
+### Work interactively in the app
+
+```bash
+pf forge
+```
+
+Operational notes for the app flow:
+
+- Opening a prompt does not auto-create a forge session or auto-run a benchmark.
+- The first agent chat, staged edit, save into a working session, or explicit benchmark/evaluation creates the prompt session lazily.
+- Benchmark history in the app is prompt-scoped. Empty history on a newly opened prompt is expected until you explicitly run `Run Bench` or `Full Eval`.
+
 ### Rebuild a report
 
 ```bash
@@ -116,7 +132,9 @@ flowchart TD
 | Check | Command or file | What to look for |
 |---|---|---|
 | Environment health | `pf doctor` | broken auth, missing dataset, bad prompt pack path |
+| App auth state | PromptForge settings UI | provider connected state, Keychain-loaded keys, Codex login state |
 | Recent run history | `ls var/runs` | expected run IDs and timestamps |
+| Recent forge sessions | `ls var/forge` | expected session IDs, pending edit state, chat history |
 | Structured logs | `tail -f var/logs/promptforge.log` | `run_started`, `case_executed`, `run_completed` |
 | Cache state | `sqlite3 var/state/cache.sqlite3 '.schema response_cache'` | table exists and is queryable |
 | Reproducibility | `var/runs/<run_id>/run.lock.json` | expected hashes, package version, provider settings |
@@ -155,6 +173,15 @@ Actions:
 2. Confirm the prompt pack and dataset hashes are the expected ones
 3. If cache reuse is no longer trusted, delete `var/state/cache.sqlite3`
 4. Rerun the command
+
+### Symptom: app chat feels slow
+
+Actions:
+
+1. Confirm you are not using a cold `codex` provider path if low-latency chat matters
+2. Open the prompt once and send a second message; the first agent interaction still pays forge-session startup cost
+3. Avoid assuming prompt open should populate benchmark history; benchmarks are now explicit actions
+4. If the delay is still extreme, inspect `var/logs/promptforge.log` and helper stderr for provider startup issues
 
 ### Symptom: compare output is confusing
 
@@ -211,4 +238,3 @@ Recovery steps after a bad prompt change:
 - [`../src/promptforge/runtime/artifacts.py`](../src/promptforge/runtime/artifacts.py)
 - [`../src/promptforge/runtime/cache.py`](../src/promptforge/runtime/cache.py)
 - [`../src/promptforge/core/logging.py`](../src/promptforge/core/logging.py)
-

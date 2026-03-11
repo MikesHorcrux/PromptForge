@@ -1,6 +1,6 @@
 # FAQ
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 ## Do I need an OpenAI API key to use PromptForge?
 
@@ -16,12 +16,16 @@ the Codex CLI for the Codex provider path.
 
 A prompt pack is a directory with:
 
+- `prompt.json`
 - `manifest.yaml`
 - `system.md`
 - `user_template.md`
 - `variables.schema.json`
 
-The loader treats all four files as required.
+The loader treats `manifest.yaml`, `system.md`, `user_template.md`, and
+`variables.schema.json` as required. `prompt.json` is the prompt intent file
+used by the app and workspace service, and older prompt packs get a default one
+when they are opened in the app.
 
 ## What happens if a dataset case is missing an `id`?
 
@@ -62,10 +66,23 @@ the next run.
 There is no rollback command. Use the previous prompt pack version or revert to
 an earlier Git commit, then rerun `pf compare` against the candidate.
 
+## Why is benchmark history empty when I first open a prompt in the app?
+
+Because prompt open is now lazy. The app loads prompt files and prompt metadata
+without creating a forge session or running a benchmark. History appears after
+you explicitly run `Run Bench` or `Full Eval`.
+
+## Why can app chat feel slower on the first request?
+
+The first real agent action on a prompt creates a forge session in `var/forge/`
+and may also need to start the provider path you selected. That is especially
+noticeable with the `codex` provider because it shells out to the Codex CLI.
+
 ## Can I run PromptForge as a service?
 
-Not in its current form. The implementation is CLI-first and does not include an
-HTTP API, scheduler, or worker process.
+Not in its current form. The implementation is app-first for interactive prompt
+work and CLI-driven for setup and batch evaluation, but it still does not
+include an HTTP API, scheduler, or worker process.
 
 ## Are there approval gates for risky actions?
 
@@ -96,4 +113,3 @@ Start with:
 - `report.md` for the latest run
 - `comparison.json` if they need structured evidence
 - [README](../README.md) and [eval philosophy](eval-philosophy.md) for value and boundaries
-

@@ -1,14 +1,17 @@
 # ADR-0001: CLI-first, Artifact-driven Runtime
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
-- Status: Accepted
+- Status: Superseded by ADR-0006
 
 ## Context
 
-PromptForge is used to evaluate prompt packs locally or in CI-style workflows.
-The codebase has one primary interface, `pf`, and no long-running service,
-scheduler, queue, or HTTP API.
+This record captures the original v1 shape of PromptForge before the macOS app
+and local helper became the primary interactive prompt-workspace surface.
+
+PromptForge is still used to evaluate prompt packs locally or in CI-style
+workflows. The CLI remains the setup, status, and batch-evaluation surface, and
+the system still has no long-running service, scheduler, queue, or HTTP API.
 
 The runtime writes explicit artifacts for every run under `var/runs/<run_id>/`.
 Those artifacts are later reused by `pf report` and by operators diagnosing

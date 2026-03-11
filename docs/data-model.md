@@ -1,6 +1,6 @@
 # Data Model
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 PromptForge has two kinds of data model:
 
@@ -15,6 +15,7 @@ There is no migration framework or central relational database in v1.
 |---|---|---|
 | `PromptPackManifest` | `src/promptforge/core/models.py` | Names a prompt pack, its output format, and required sections |
 | `PromptPack` | `src/promptforge/core/models.py` | Fully loaded prompt pack, including prompts, schema, and content hash |
+| `PromptBrief` | `src/promptforge/prompts/brief.py` | Per-prompt intent fields such as purpose, expected behavior, and success criteria |
 | `DatasetCase` | `src/promptforge/core/models.py` | One JSONL evaluation case with input, optional context, rubric targets, and format expectations |
 | `RunConfig` | `src/promptforge/core/models.py` | Execution controls such as concurrency, retries, timeout, and failure threshold |
 | `ScoringConfig` | `src/promptforge/core/models.py` | Rubric weights, hard-fail rules, judge model, and tie margin |
@@ -24,6 +25,9 @@ There is no migration framework or central relational database in v1.
 | `ComparisonArtifact` | `src/promptforge/core/models.py` | Head-to-head comparison between prompt A and prompt B |
 | `Lockfile` | `src/promptforge/core/models.py` | Reproducibility record with hashes, config, Python version, and package version |
 | `CachedResponse` | `src/promptforge/core/models.py` | Local memoized generation output stored in SQLite |
+| `ForgeSessionManifest` | `src/promptforge/forge/models.py` | Metadata for one prompt-workspace session under `var/forge/` |
+| `ForgeHistory` | `src/promptforge/forge/models.py` | Revision log for a prompt workspace session |
+| `ChatHistory` | `src/promptforge/forge/models.py` | Prompt-scoped agent chat turns stored with the forge session |
 
 ## Persisted state
 
@@ -39,6 +43,17 @@ Each run creates a directory under `var/runs/<run_id>/`.
 | `scores.json` | `EvaluationService.run()` / `compare()` | Evaluation runs store one `ScoresArtifact`; comparison runs store `{prompt_a, prompt_b}` |
 | `comparison.json` | `EvaluationService.run()` / `compare()` | Placeholder for single runs, full `ComparisonArtifact` for compare runs |
 | `report.md` | `render_evaluation_report()` / `render_comparison_report()` | Human-readable summary |
+
+### Project and prompt workspace files
+
+| File | Written by | Meaning |
+|---|---|---|
+| `.promptforge/project.json` | `PromptForgeProject.save()` | Project-level defaults such as provider, models, datasets, and last opened prompt |
+| `prompt_packs/<version>/prompt.json` | `save_prompt_brief()` / `prompt.save` | Prompt-level intent fields used by the app overview and agent context |
+| `var/forge/<session_id>/session.json` | `ForgeSession._persist()` | Active forge session manifest for one prompt |
+| `var/forge/<session_id>/history.json` | `ForgeSession._persist()` | Prompt workspace revisions, benchmarks, and restore history |
+| `var/forge/<session_id>/pending_edits.json` | `ForgeSession._persist()` | Staged proposals waiting for apply/discard |
+| `var/forge/<session_id>/chat_history.json` | `ForgeSession._persist()` | Agent chat turns for the prompt workspace |
 
 ### SQLite cache
 
@@ -148,8 +163,16 @@ flowchart TB
 ### Prompt packs
 
 - Prompt packs include `apiVersion`, `version`, `name`, `output_format`, and `required_sections`.
+- Prompt packs now also include `prompt.json` for prompt intent metadata. The loader auto-creates a default file when older prompt packs are opened in the app or workspace service.
 - `apiVersion` is loaded and stored, but current runtime logic does not branch on it. Treat it as metadata today.
 - Prompt pack changes affect the `prompt_pack_hash`, which feeds the `config_hash`, which invalidates cache reuse automatically.
+
+### Forge sessions
+
+- Forge sessions are stored under `var/forge/<session_id>/`.
+- Session creation is lazy in the app flow: a prompt can be viewed without creating a session.
+- A session is created when the user starts agent chat, stages edits, saves through the active workspace session, or explicitly runs a benchmark/evaluation.
+- Revisions may exist without benchmark data because prompt saves and restores no longer auto-run the quick benchmark.
 
 ### Datasets
 
@@ -172,7 +195,8 @@ flowchart TB
 ## Source of truth
 
 - [`../src/promptforge/core/models.py`](../src/promptforge/core/models.py)
+- [`../src/promptforge/forge/models.py`](../src/promptforge/forge/models.py)
+- [`../src/promptforge/prompts/brief.py`](../src/promptforge/prompts/brief.py)
 - [`../src/promptforge/runtime/artifacts.py`](../src/promptforge/runtime/artifacts.py)
 - [`../src/promptforge/runtime/cache.py`](../src/promptforge/runtime/cache.py)
 - [`../src/promptforge/runtime/run_service.py`](../src/promptforge/runtime/run_service.py)
-

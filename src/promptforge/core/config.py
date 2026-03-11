@@ -11,6 +11,7 @@ load_dotenv()
 
 
 class Settings(BaseModel):
+    engine_root: Path = Field(default_factory=lambda: Path(os.getenv("PF_ENGINE_ROOT", ".")).expanduser())
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     openai_base_model: str = os.getenv("OPENAI_BASE_MODEL", "gpt-5.4")
     openai_judge_model: str = os.getenv("OPENAI_JUDGE_MODEL", "gpt-5-mini")

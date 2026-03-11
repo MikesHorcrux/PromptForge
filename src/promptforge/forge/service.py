@@ -17,9 +17,12 @@ from promptforge.core.models import RunConfig, RunRequest, ScoresArtifact, Trait
 from promptforge.datasets.loader import load_dataset
 from promptforge.forge.models import (
     AgentEditResult,
+    AgentChatResult,
     BenchmarkCaseSummary,
     BenchmarkDiff,
     BenchmarkSnapshot,
+    ChatHistory,
+    ChatTurn,
     ForgeHistory,
     PendingEdits,
     PreparedAgentEdit,
@@ -34,6 +37,7 @@ from promptforge.runtime.run_service import EvaluationService, generate_run_id
 
 
 EDITABLE_PROMPT_FILES = (
+    "prompt.json",
     "system.md",
     "user_template.md",
     "manifest.yaml",
@@ -46,6 +50,7 @@ You may inspect files, edit prompt-pack files, and run shell commands in the cur
 
 Hard boundaries:
 - Only modify these files unless the user explicitly asks otherwise:
+  - prompt.json
   - system.md
   - user_template.md
   - manifest.yaml
@@ -82,6 +87,35 @@ Rules:
 - Do not rewrite the full prompt unless the user explicitly asks for a rewrite.
 """
 
+AGENT_CHAT_SYSTEM_PROMPT = """You are PromptForge, an interactive prompt engineering agent inside a local workspace.
+
+You are collaborating with the user on one prompt pack.
+
+Rules:
+- Converse naturally and build on prior turns.
+- Use the prompt brief, current prompt files, and benchmark evidence only when relevant to the user's request.
+- Answer direct questions directly.
+- When recommending changes, be concrete about what to adjust and why.
+- If the user is greeting you, greet them back and ask what they want to do.
+- If the user is making small talk or asking a meta question, respond naturally instead of forcing prompt advice.
+- Do not invent benchmark outcomes or prompt contents.
+- Keep answers concise and practical.
+- Only mention slash commands when the user is explicitly asking how to trigger a specific action.
+"""
+
+CHAT_HISTORY_LIMIT = 24
+SIMPLE_GREETINGS = {
+    "hey",
+    "hey there",
+    "hi",
+    "hello",
+    "yo",
+    "sup",
+    "good morning",
+    "good afternoon",
+    "good evening",
+}
+
 
 class ForgeSession:
     def __init__(
@@ -103,7 +137,9 @@ class ForgeSession:
         self.manifest_path = self.session_dir / "session.json"
         self.history_path = self.session_dir / "history.json"
         self.pending_edits_path = self.session_dir / "pending_edits.json"
+        self.chat_history_path = self.session_dir / "chat_history.json"
         self.pending_edits = self._load_pending_edits()
+        self.chat_history = self._load_chat_history()
 
     @classmethod
     def load_manifest(cls, session_id: str) -> ForgeSessionManifest:
@@ -181,6 +217,7 @@ class ForgeSession:
             source="baseline",
             note=f"Imported baseline prompt `{prompt_pack.manifest.version}`.",
             changed_files=[],
+            run_benchmark=False,
         )
         session.manifest.baseline_revision_id = baseline_revision.revision_id
         session.manifest.latest_revision_id = baseline_revision.revision_id
@@ -222,6 +259,7 @@ class ForgeSession:
 
     def read_prompt_file(self, target: str) -> tuple[Path, str]:
         file_map = {
+            "brief": self.working_prompt_dir / "prompt.json",
             "system": self.working_prompt_dir / "system.md",
             "user": self.working_prompt_dir / "user_template.md",
             "manifest": self.working_prompt_dir / "manifest.yaml",
@@ -296,6 +334,7 @@ class ForgeSession:
                 source="agent_edit",
                 note=proposal.summary or proposal.request,
                 changed_files=proposal.changed_files,
+                run_benchmark=False,
             )
         self._drop_pending_edit(proposal_id)
         log_event(
@@ -347,6 +386,7 @@ class ForgeSession:
             source="manual_edit",
             note=note or f"Edited {path.name}.",
             changed_files=[path.name],
+            run_benchmark=False,
         )
 
     async def edit_prompt_files(
@@ -357,6 +397,7 @@ class ForgeSession:
     ) -> ForgeRevision:
         changed_files: list[str] = []
         target_map = {
+            "brief": "prompt.json",
             "system": "system.md",
             "user": "user_template.md",
             "manifest": "manifest.yaml",
@@ -378,6 +419,7 @@ class ForgeSession:
             source="manual_edit",
             note=note or "Edited prompt files from the forge workspace.",
             changed_files=changed_files,
+            run_benchmark=False,
         )
 
     async def run_manual_benchmark(self, *, note: str | None = None) -> ForgeRevision:
@@ -395,7 +437,8 @@ class ForgeSession:
             prompt_dir=self.working_prompt_dir,
             source="reset",
             note=note or "Reset working prompt to the baseline snapshot.",
-            changed_files=["system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
+            changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
+            run_benchmark=False,
         )
 
     async def restore_revision(self, revision_id: str, *, note: str | None = None) -> ForgeRevision:
@@ -405,7 +448,8 @@ class ForgeSession:
             prompt_dir=self.working_prompt_dir,
             source="restore",
             note=note or f"Restored working prompt to {revision_id}.",
-            changed_files=["system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
+            changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
+            run_benchmark=False,
         )
 
     async def run_full_evaluation(self, *, note: str | None = None) -> ForgeRevision:
@@ -436,6 +480,84 @@ class ForgeSession:
         return latest
 
     async def coach(self, request: str) -> str:
+        return await self._generate_chat_reply(
+            request,
+            include_history=False,
+            system_instructions=COACH_SYSTEM_PROMPT,
+            response_instructions=(
+                "Focus on prompt-improvement guidance. Explain what to change, why it matters, and include a revised snippet when useful."
+            ),
+        )
+
+    async def agent_chat(self, request: str) -> AgentChatResult:
+        normalized = request.strip()
+        if not normalized:
+            return AgentChatResult(kind="reply", message="Ask about the prompt, request changes, or tell me to run an evaluation.")
+
+        self._record_chat_turn("user", normalized)
+
+        if self._is_simple_greeting(normalized):
+            message = "Hey. I can help edit this prompt, explain its behavior, inspect failures, or run evaluations. What do you want to do?"
+            self._record_chat_turn("assistant", message)
+            return AgentChatResult(kind="reply", message=message)
+
+        if self._is_capabilities_question(normalized):
+            message = (
+                "I can chat through the prompt, suggest or stage prompt changes, run a quick benchmark, run a full evaluation, "
+                "and help interpret failures or weak cases."
+            )
+            self._record_chat_turn("assistant", message)
+            return AgentChatResult(kind="reply", message=message)
+
+        if self._should_run_full_evaluation(normalized):
+            revision = await self.run_full_evaluation(
+                note=f"Agent-triggered full evaluation from chat: {normalized}"
+            )
+            score = revision.full_evaluation.mean_effective_score if revision.full_evaluation else None
+            message = "Ran the full evaluation."
+            if score is not None:
+                message += f" Latest full-eval score: {score:.2f}/5."
+            self._record_chat_turn("assistant", message)
+            return AgentChatResult(kind="full_evaluation", message=message, revision=revision)
+
+        if self._should_run_benchmark(normalized):
+            revision = await self.run_manual_benchmark(
+                note=f"Agent-triggered benchmark from chat: {normalized}"
+            )
+            score = revision.benchmark.mean_effective_score if revision.benchmark else None
+            message = "Ran a quick benchmark."
+            if score is not None:
+                message += f" Latest benchmark score: {score:.2f}/5."
+            self._record_chat_turn("assistant", message)
+            return AgentChatResult(kind="benchmark", message=message, revision=revision)
+
+        if self._should_prepare_edit(normalized):
+            proposal = await self.prepare_agent_request(normalized)
+            changed_files = ", ".join(proposal.changed_files) if proposal.changed_files else "no file changes"
+            message = f"Prepared a staged edit proposal touching {changed_files}."
+            self._record_chat_turn("assistant", message)
+            return AgentChatResult(kind="proposal", message=message, proposal=proposal)
+
+        reply = await self._generate_chat_reply(
+            normalized,
+            include_history=True,
+            system_instructions=AGENT_CHAT_SYSTEM_PROMPT,
+            response_instructions=(
+                "Reply conversationally. If the user is asking for advice, give it plainly. "
+                "If they are greeting or asking a simple question, answer naturally without forcing prompt-edit structure."
+            ),
+        )
+        self._record_chat_turn("assistant", reply)
+        return AgentChatResult(kind="reply", message=reply)
+
+    async def _generate_chat_reply(
+        self,
+        request: str,
+        *,
+        include_history: bool,
+        system_instructions: str,
+        response_instructions: str,
+    ) -> str:
         latest = self.latest_revision
         latest_summary = "No benchmark has been run yet."
         if latest and latest.benchmark:
@@ -443,31 +565,39 @@ class ForgeSession:
             if latest.benchmark_vs_baseline:
                 latest_summary += "\n\nAgainst baseline:\n" + self._format_diff_for_prompt(latest.benchmark_vs_baseline)
 
-        _, system_prompt = self.read_prompt_file("system")
+        _, brief_text = self.read_prompt_file("brief")
+        _, current_system_prompt = self.read_prompt_file("system")
         _, user_template = self.read_prompt_file("user")
+        history_block = ""
+        if include_history:
+            history_block = self._formatted_chat_history(limit=10)
         guidance_prompt = (
+            "Prompt brief:\n"
+            f"{brief_text.strip()}\n\n"
             "Current prompt pack:\n"
             "=== SYSTEM PROMPT ===\n"
-            f"{system_prompt.strip()}\n\n"
+            f"{current_system_prompt.strip()}\n\n"
             "=== USER TEMPLATE ===\n"
             f"{user_template.strip()}\n\n"
             "Latest benchmark snapshot:\n"
             f"{latest_summary}\n\n"
+        )
+        if history_block:
+            guidance_prompt += f"Conversation so far:\n{history_block}\n\n"
+        guidance_prompt += (
             "User request:\n"
             f"{request.strip()}\n\n"
-            "Respond with:\n"
-            "1. What to change\n"
-            "2. Why the benchmark suggests it\n"
-            "3. A concrete revised snippet for the system prompt and/or user template when useful\n"
+            "Response instructions:\n"
+            f"{response_instructions.strip()}\n"
         )
         response = await self.gateway.generate(
-            prompt_version="forge-coach",
-            case_id="forge-coach",
-            model=self.manifest.model,
-            system_prompt=COACH_SYSTEM_PROMPT,
+            prompt_version="forge-chat",
+            case_id="forge-chat",
+            model=self.manifest.agent_model,
+            system_prompt=system_instructions,
             user_prompt=guidance_prompt,
             run_id=self.manifest.session_id,
-            config_hash=f"{self.manifest.session_id}-coach",
+            config_hash=f"{self.manifest.session_id}-chat",
             run_config=RunConfig(
                 temperature=0.2,
                 max_output_tokens=max(900, self.manifest.run_config.max_output_tokens),
@@ -619,6 +749,7 @@ class ForgeSession:
         source: RevisionSource,
         note: str,
         changed_files: list[str],
+        run_benchmark: bool = True,
     ) -> ForgeRevision:
         prompt_pack = load_prompt_pack(prompt_dir)
         revision_id = f"r{len(self.history.revisions):03d}"
@@ -635,41 +766,68 @@ class ForgeSession:
             prompt_pack_hash=prompt_pack.content_hash,
             prompt_snapshot_dir=str(snapshot_dir),
         )
-        revision.benchmark = await self._run_snapshot(
-            prompt_dir=snapshot_dir,
-            dataset_path=self.manifest.benchmark_dataset_path,
-            repeats=self.manifest.bench_repeats,
-            label="benchmark",
-        )
-        if self.history.revisions:
-            revision.benchmark_vs_baseline = self._compare_snapshots(
-                candidate=revision.benchmark,
-                reference=self.baseline_revision.benchmark,
-                reference_label="baseline",
+        if run_benchmark:
+            await self._ensure_baseline_benchmark()
+            revision.benchmark = await self._run_snapshot(
+                prompt_dir=snapshot_dir,
+                dataset_path=self.manifest.benchmark_dataset_path,
+                repeats=self.manifest.bench_repeats,
+                label="benchmark",
             )
-        previous_benchmark_revision = self._previous_benchmark_revision()
-        if previous_benchmark_revision and previous_benchmark_revision.revision_id != revision.revision_id:
-            revision.benchmark_vs_previous = self._compare_snapshots(
-                candidate=revision.benchmark,
-                reference=previous_benchmark_revision.benchmark,
-                reference_label=previous_benchmark_revision.revision_id,
-            )
+            if self.history.revisions and self.baseline_revision.benchmark is not None:
+                revision.benchmark_vs_baseline = self._compare_snapshots(
+                    candidate=revision.benchmark,
+                    reference=self.baseline_revision.benchmark,
+                    reference_label="baseline",
+                )
+            previous_benchmark_revision = self._previous_benchmark_revision()
+            if previous_benchmark_revision and previous_benchmark_revision.revision_id != revision.revision_id:
+                revision.benchmark_vs_previous = self._compare_snapshots(
+                    candidate=revision.benchmark,
+                    reference=previous_benchmark_revision.benchmark,
+                    reference_label=previous_benchmark_revision.revision_id,
+                )
         self.history.revisions.append(revision)
         self.manifest.latest_revision_id = revision.revision_id
         if source == "baseline":
             self.manifest.baseline_revision_id = revision.revision_id
         self._persist()
-        log_event(
-            self.logger,
-            "forge_revision_benchmarked",
-            session_id=self.manifest.session_id,
-            revision_id=revision.revision_id,
-            source=source,
-            prompt_pack_hash=revision.prompt_pack_hash,
-            run_ids=revision.benchmark.run_ids if revision.benchmark else [],
-            mean_effective_score=revision.benchmark.mean_effective_score if revision.benchmark else None,
-        )
+        if revision.benchmark is not None:
+            log_event(
+                self.logger,
+                "forge_revision_benchmarked",
+                session_id=self.manifest.session_id,
+                revision_id=revision.revision_id,
+                source=source,
+                prompt_pack_hash=revision.prompt_pack_hash,
+                run_ids=revision.benchmark.run_ids if revision.benchmark else [],
+                mean_effective_score=revision.benchmark.mean_effective_score if revision.benchmark else None,
+            )
+        else:
+            log_event(
+                self.logger,
+                "forge_revision_created",
+                session_id=self.manifest.session_id,
+                revision_id=revision.revision_id,
+                source=source,
+                prompt_pack_hash=revision.prompt_pack_hash,
+                note=note,
+            )
         return revision
+
+    async def _ensure_baseline_benchmark(self) -> None:
+        if not self.manifest.baseline_revision_id:
+            return
+        baseline = self.baseline_revision
+        if baseline.benchmark is not None:
+            return
+        baseline.benchmark = await self._run_snapshot(
+            prompt_dir=Path(baseline.prompt_snapshot_dir),
+            dataset_path=self.manifest.benchmark_dataset_path,
+            repeats=self.manifest.bench_repeats,
+            label="benchmark",
+        )
+        self._persist()
 
     def _previous_benchmark_revision(self) -> ForgeRevision | None:
         for revision in reversed(self.history.revisions):
@@ -935,6 +1093,10 @@ class ForgeSession:
             json.dumps(self.pending_edits.model_dump(mode="json"), indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        self.chat_history_path.write_text(
+            json.dumps(self.chat_history.model_dump(mode="json"), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
     def _load_pending_edits(self) -> PendingEdits:
         if not self.pending_edits_path.exists():
@@ -942,6 +1104,78 @@ class ForgeSession:
         return PendingEdits.model_validate(
             json.loads(self.pending_edits_path.read_text(encoding="utf-8"))
         )
+
+    def _load_chat_history(self) -> ChatHistory:
+        if not self.chat_history_path.exists():
+            return ChatHistory()
+        return ChatHistory.model_validate(
+            json.loads(self.chat_history_path.read_text(encoding="utf-8"))
+        )
+
+    def _record_chat_turn(self, role: str, content: str) -> None:
+        normalized = content.strip()
+        if not normalized:
+            return
+        self.chat_history.turns.append(ChatTurn(role=role, content=normalized))
+        self.chat_history.turns = self.chat_history.turns[-CHAT_HISTORY_LIMIT:]
+        self._persist()
+
+    def _formatted_chat_history(self, *, limit: int) -> str:
+        recent_turns = self.chat_history.turns[-limit:]
+        if not recent_turns:
+            return ""
+        return "\n".join(
+            f"{'User' if turn.role == 'user' else 'Assistant'}: {turn.content}"
+            for turn in recent_turns
+        )
+
+    def _is_simple_greeting(self, request: str) -> bool:
+        lowered = " ".join(request.lower().split())
+        return lowered in SIMPLE_GREETINGS
+
+    def _is_capabilities_question(self, request: str) -> bool:
+        lowered = request.lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "what can you do",
+                "how can you help",
+                "help me",
+                "what do you do",
+                "what are you able to do",
+            )
+        )
+
+    def _should_run_benchmark(self, request: str) -> bool:
+        lowered = request.lower()
+        benchmark_markers = ("run a benchmark", "run benchmark", "benchmark this", "bench this", "test this prompt", "evaluate this prompt", "score this prompt", "run evaluation")
+        return any(marker in lowered for marker in benchmark_markers) and "full" not in lowered
+
+    def _should_run_full_evaluation(self, request: str) -> bool:
+        lowered = request.lower()
+        full_markers = ("full eval", "full evaluation", "run the full", "evaluate the full dataset", "run the full dataset")
+        return any(marker in lowered for marker in full_markers)
+
+    def _should_prepare_edit(self, request: str) -> bool:
+        lowered = request.lower()
+        edit_markers = (
+            "edit the prompt",
+            "update the prompt",
+            "rewrite the prompt",
+            "change the prompt",
+            "modify the prompt",
+            "fix the prompt",
+            "improve the prompt",
+            "change the system prompt",
+            "update the system prompt",
+            "rewrite the system prompt",
+            "change the user template",
+            "update the user template",
+            "rewrite the user template",
+            "make these changes",
+            "apply these changes",
+        )
+        return any(marker in lowered for marker in edit_markers)
 
     def _next_proposal_id(self) -> str:
         highest = -1

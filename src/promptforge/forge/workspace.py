@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 
 from promptforge.core.config import settings
 from promptforge.core.models import RunConfig, ScoringConfig
-from promptforge.forge.models import AgentEditResult, PreparedAgentEdit
+from promptforge.forge.models import AgentChatResult, AgentEditResult, PreparedAgentEdit
 from promptforge.forge.service import ForgeSession
 from promptforge.project import PromptForgeProject
+from promptforge.prompts.brief import PromptBrief, ensure_prompt_brief, save_prompt_brief
 from promptforge.prompts.loader import load_prompt_pack
 from promptforge.runtime.gateway import build_gateway
 
@@ -31,6 +32,10 @@ class PromptView(BaseModel):
     root: str
     system_prompt: str
     user_template: str
+    purpose: str = ""
+    expected_behavior: str = ""
+    success_criteria: str = ""
+    files: list[str] = Field(default_factory=list)
     session_id: str | None = None
 
 
@@ -116,6 +121,7 @@ class ForgeWorkspaceService:
             manifest["version"] = version
             manifest["name"] = name or f"{version} prompt"
             manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+            ensure_prompt_brief(destination, description=manifest.get("description", ""))
             return destination
 
         destination.mkdir(parents=True, exist_ok=False)
@@ -139,12 +145,23 @@ class ForgeWorkspaceService:
             encoding="utf-8",
         )
         (destination / "user_template.md").write_text(
-            "{{ input | tojson if input is mapping else input }}\n",
+            (
+                "Use the provided input payload to answer the request.\n\n"
+                "{{ input | tojson(indent=2) if input is mapping else input }}\n"
+            ),
             encoding="utf-8",
         )
         (destination / "variables.schema.json").write_text(
             json.dumps({"type": "object", "additionalProperties": True}, indent=2) + "\n",
             encoding="utf-8",
+        )
+        save_prompt_brief(
+            destination,
+            PromptBrief(
+                purpose=f"What this prompt is for in {name or version}.",
+                expected_behavior="Describe the behavior, tone, and output shape you expect from the prompt.",
+                success_criteria="Describe what a good answer must include and what should be avoided.",
+            ),
         )
         return destination
 
@@ -155,6 +172,7 @@ class ForgeWorkspaceService:
                 manifest = ForgeSession.load_manifest(session_id)
                 if self._session_matches_config(manifest):
                     prompt_pack = load_prompt_pack(manifest.working_prompt_dir)
+                    brief = ensure_prompt_brief(prompt_pack.root, description=prompt_pack.manifest.description)
                     return PromptView(
                         version=prompt_ref,
                         name=prompt_pack.manifest.name,
@@ -162,6 +180,10 @@ class ForgeWorkspaceService:
                         root=str(prompt_pack.root),
                         system_prompt=prompt_pack.system_prompt,
                         user_template=prompt_pack.user_template,
+                        purpose=brief.purpose,
+                        expected_behavior=brief.expected_behavior,
+                        success_criteria=brief.success_criteria,
+                        files=self._prompt_files(prompt_pack.root),
                         session_id=session_id,
                     )
             except Exception:
@@ -169,6 +191,7 @@ class ForgeWorkspaceService:
                 self._persist_state()
 
         prompt_pack = load_prompt_pack(prompt_ref)
+        brief = ensure_prompt_brief(prompt_pack.root, description=prompt_pack.manifest.description)
         return PromptView(
             version=prompt_pack.manifest.version,
             name=prompt_pack.manifest.name,
@@ -176,6 +199,10 @@ class ForgeWorkspaceService:
             root=str(prompt_pack.root),
             system_prompt=prompt_pack.system_prompt,
             user_template=prompt_pack.user_template,
+            purpose=brief.purpose,
+            expected_behavior=brief.expected_behavior,
+            success_criteria=brief.success_criteria,
+            files=self._prompt_files(prompt_pack.root),
             session_id=None,
         )
 
@@ -200,6 +227,8 @@ class ForgeWorkspaceService:
                 self.state.prompt_sessions.pop(prompt_ref, None)
                 self._persist_state()
 
+        prompt_pack = load_prompt_pack(prompt_ref)
+        ensure_prompt_brief(prompt_pack.root, description=prompt_pack.manifest.description)
         gateway = build_gateway(provider=self.provider, judge_provider=self.judge_provider)
         session = await ForgeSession.create(
             prompt_ref=prompt_ref,
@@ -227,6 +256,16 @@ class ForgeWorkspaceService:
         self.set_active_prompt(prompt_ref)
         return await session.prepare_agent_request(request)
 
+    async def coach(self, prompt_ref: str, request: str) -> str:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return await session.coach(request)
+
+    async def agent_chat(self, prompt_ref: str, request: str) -> AgentChatResult:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return await session.agent_chat(request)
+
     async def apply_prepared_edit(self, prompt_ref: str, proposal_id: str) -> AgentEditResult:
         session = await self.ensure_session(prompt_ref)
         self.set_active_prompt(prompt_ref)
@@ -247,6 +286,32 @@ class ForgeWorkspaceService:
         return await session.edit_prompt_files(
             updates={"system": system_prompt, "user": user_template},
             note="Saved editor changes from the forge workspace.",
+        )
+
+    async def save_prompt_workspace(
+        self,
+        prompt_ref: str,
+        *,
+        system_prompt: str,
+        user_template: str,
+        purpose: str,
+        expected_behavior: str,
+        success_criteria: str,
+    ):
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        brief = PromptBrief(
+            purpose=purpose.strip(),
+            expected_behavior=expected_behavior.strip(),
+            success_criteria=success_criteria.strip(),
+        )
+        return await session.edit_prompt_files(
+            updates={
+                "system": system_prompt,
+                "user": user_template,
+                "brief": json.dumps(brief.model_dump(mode="json"), indent=2, sort_keys=True),
+            },
+            note="Saved prompt overview and editor changes from the forge workspace.",
         )
 
     async def run_benchmark(self, prompt_ref: str):
@@ -324,3 +389,20 @@ class ForgeWorkspaceService:
             json.dumps(self.state.model_dump(mode="json"), indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+    def _prompt_files(self, prompt_root: str | Path) -> list[str]:
+        root = Path(prompt_root)
+        preferred_order = [
+            "prompt.json",
+            "system.md",
+            "user_template.md",
+            "manifest.yaml",
+            "variables.schema.json",
+        ]
+        files = [name for name in preferred_order if (root / name).exists()]
+        files.extend(
+            child.name
+            for child in sorted(root.iterdir(), key=lambda path: path.name.lower())
+            if child.is_file() and child.name not in files
+        )
+        return files

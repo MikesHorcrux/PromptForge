@@ -1,6 +1,6 @@
 # Testing and Quality
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 PromptForge’s automated quality bar is currently test-driven around contracts,
 not around live provider traffic.
@@ -44,6 +44,7 @@ Notes:
 | Test file | What it verifies |
 |---|---|
 | `tests/test_prompt_loader.py` | Prompt pack loading, schema validation path, and Jinja render behavior |
+| `tests/test_helper_server.py` | Helper RPC contract, settings, prompt save/load, prompt history, event streaming, and agent chat behavior |
 | `tests/test_scoring_rules.py` | Missing section detection and invalid JSON hard-fail logic |
 | `tests/test_cache_and_compare.py` | SQLite cache round-trip and comparison preference for non-hard-failing outputs |
 | `tests/test_run_service.py` | End-to-end run and compare artifact generation with a fake gateway |
@@ -55,6 +56,7 @@ Notes:
 ### Covered well
 
 - prompt pack loading contract
+- helper RPC contract and fake-gateway workspace behavior
 - dataset rendering path
 - hard-fail rules
 - cache persistence
@@ -71,6 +73,7 @@ Notes:
 - artifact backward compatibility across versions
 - log content assertions
 - failure-threshold behavior under large concurrent datasets
+- app-level UI behavior and launch-time integration in CI
 
 ## Quality model
 
@@ -111,6 +114,7 @@ If the project grows, add:
 ## Source of truth
 
 - [`../tests/test_prompt_loader.py`](../tests/test_prompt_loader.py)
+- [`../tests/test_helper_server.py`](../tests/test_helper_server.py)
 - [`../tests/test_scoring_rules.py`](../tests/test_scoring_rules.py)
 - [`../tests/test_cache_and_compare.py`](../tests/test_cache_and_compare.py)
 - [`../tests/test_run_service.py`](../tests/test_run_service.py)
@@ -118,4 +122,3 @@ If the project grows, add:
 - [`../tests/test_codex_gateway.py`](../tests/test_codex_gateway.py)
 - [`../src/promptforge/scripts/smoke_openai.py`](../src/promptforge/scripts/smoke_openai.py)
 - [`../src/promptforge/scripts/smoke_eval.py`](../src/promptforge/scripts/smoke_eval.py)
-

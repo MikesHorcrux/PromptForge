@@ -1,6 +1,6 @@
 # Security and Safety
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 PromptForge is safer than a general agent runtime because it evaluates prompts,
 not business actions. It does not write to external systems, mutate datasets, or
@@ -18,6 +18,21 @@ describes the real trust boundaries in the current code.
 | `openrouter` | `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | `get_openai_compatible_client("openrouter")` | OpenAI-compatible base URL path |
 | `codex` | local `codex login` session or `codex login --with-api-key` | `CodexGateway` | PromptForge shells out to `codex exec` |
 
+For the macOS app specifically:
+
+- `PromptForge.app` now reads `OPENAI_API_KEY` and `OPENROUTER_API_KEY` from the
+  macOS Keychain first when launching the local helper.
+- The settings UI reports whether those keys are loaded, but it does not render
+  the current secret values back into the interface.
+- If the app inherits one of those keys from the current shell environment and
+  the Keychain does not already have it, the app writes that key into the
+  Keychain as a one-time migration path.
+- The Python engine still supports `.env` for CLI-first workflows. Codex auth
+  still relies on the local `codex login` session state, but the app can now
+  launch that login flow from its settings UI.
+- The app keeps prompt-scoped agent conversation history in local forge session
+  files under `var/forge/<session_id>/chat_history.json`.
+
 Secret source files:
 
 - `.env.example` defines supported variables
@@ -30,10 +45,14 @@ Secret source files:
 flowchart LR
   subgraph Local["Local machine"]
     Env[".env"]
+    Keychain["macOS Keychain"]
     Packs["prompt_packs/"]
     Data["datasets/"]
+    App["PromptForge.app"]
+    Helper["Local helper"]
     CLI["PromptForge CLI"]
     Runs["var/runs/"]
+    Forge["var/forge/"]
     Cache["var/state/cache.sqlite3"]
     Logs["var/logs/promptforge.log"]
   end
@@ -44,8 +63,15 @@ flowchart LR
   end
 
   Env --> CLI
+  Keychain --> App
   Packs --> CLI
+  Packs --> App
   Data --> CLI
+  Data --> App
+  App --> Helper
+  Helper --> OpenAI
+  Helper --> Codex
+  Helper --> Forge
   CLI --> OpenAI
   CLI --> Codex
   CLI --> Runs
@@ -102,6 +128,7 @@ PromptForge stores raw model outputs in:
 - `scores.json` summaries and evidence
 - `report.md`
 - the SQLite response cache
+- forge session state such as prompt revisions, pending edits, and chat history
 
 Do not run sensitive datasets unless local artifact retention is acceptable for
 your environment.
@@ -161,4 +188,3 @@ That means:
 - [`../src/promptforge/core/logging.py`](../src/promptforge/core/logging.py)
 - [`../src/promptforge/runtime/gateway.py`](../src/promptforge/runtime/gateway.py)
 - [`../src/promptforge/runtime/run_service.py`](../src/promptforge/runtime/run_service.py)
-

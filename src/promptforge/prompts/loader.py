@@ -65,9 +65,9 @@ def render_user_prompt(prompt_pack: PromptPack, case: DatasetCase) -> str:
     env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
     template = env.from_string(prompt_pack.user_template)
     payload: dict[str, Any] = dict(case.input)
+    payload["input"] = case.input
     payload["context"] = case.context
     payload["case_id"] = case.id
     payload["rubric_targets"] = case.rubric_targets
     payload["format_expectations"] = case.format_expectations.model_dump(mode="json")
     return template.render(**payload).strip()
-

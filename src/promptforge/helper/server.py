@@ -7,6 +7,8 @@ import os
 import signal
 import shutil
 import subprocess
+from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,60 @@ from promptforge.core.config import settings
 from promptforge.core.models import RunConfig, ScoringConfig
 from promptforge.forge.workspace import ForgeWorkspaceService
 from promptforge.project import PromptForgeProject
+
+
+class HelperEventStream:
+    def __init__(self, *, backlog_limit: int = 256) -> None:
+        self._condition = asyncio.Condition()
+        self._backlog: deque[dict[str, Any]] = deque(maxlen=backlog_limit)
+        self._sequence = 0
+
+    async def publish(self, event_type: str, **payload: Any) -> dict[str, Any]:
+        async with self._condition:
+            self._sequence += 1
+            event = {
+                "sequence": self._sequence,
+                "type": event_type,
+                "timestamp": _utc_now(),
+                "payload": payload,
+            }
+            self._backlog.append(event)
+            self._condition.notify_all()
+            return event
+
+    async def subscribe(
+        self,
+        *,
+        after: int = 0,
+        timeout_seconds: float = 30.0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        timeout_seconds = max(0.0, timeout_seconds)
+        limit = max(1, min(limit, 200))
+
+        async with self._condition:
+            if not self._events_after(after):
+                try:
+                    await asyncio.wait_for(
+                        self._condition.wait_for(lambda: bool(self._events_after(after))),
+                        timeout=timeout_seconds,
+                    )
+                except TimeoutError:
+                    pass
+            events = self._events_after(after)[-limit:]
+            cursor = events[-1]["sequence"] if events else after
+            return {
+                "subscribed": True,
+                "cursor": cursor,
+                "events": events,
+            }
+
+    def _events_after(self, after: int) -> list[dict[str, Any]]:
+        return [event for event in self._backlog if event["sequence"] > after]
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 def _provider_auth_status(provider: str) -> tuple[bool, str]:
@@ -28,12 +84,16 @@ def _provider_auth_status(provider: str) -> tuple[bool, str]:
     codex_path = settings.codex_bin
     if shutil.which(codex_path) is None:
         return False, f"Codex CLI not found: {codex_path}"
-    completed = subprocess.run(
-        [codex_path, "login", "status"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            [codex_path, "login", "status"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as exc:
+        return False, f"Codex status unavailable: {exc}"
     detail = completed.stdout.strip() or completed.stderr.strip() or f"Codex CLI found at {codex_path}"
     return completed.returncode == 0, detail
 
@@ -44,6 +104,7 @@ class PromptForgeHelper:
         os.chdir(self.project_root)
         self.project = PromptForgeProject.open_or_create(self.project_root)
         self.workspace = self._build_workspace()
+        self.events = HelperEventStream()
 
     def _build_workspace(self) -> ForgeWorkspaceService:
         metadata = self.project.metadata
@@ -62,10 +123,54 @@ class PromptForgeHelper:
         )
 
     async def handle(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if method == "events.subscribe":
+            return await self.events.subscribe(
+                after=int(params.get("after", 0) or 0),
+                timeout_seconds=float(params.get("timeout_seconds", 30.0) or 0.0),
+                limit=int(params.get("limit", 50) or 50),
+            )
+
+        await self.events.publish("request.started", method=method, params=params)
+        try:
+            result = await self._handle(method, params)
+        except Exception as exc:
+            await self.events.publish(
+                "request.failed",
+                method=method,
+                params=params,
+                error=str(exc),
+            )
+            raise
+        await self.events.publish("request.completed", method=method, params=params, result=result)
+        return result
+
+    async def _handle(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if method == "health":
             return {"status": "ok", "project_root": str(self.project_root)}
         if method == "status.get":
             return self._status_payload()
+        if method == "settings.get":
+            return self._settings_payload()
+        if method == "settings.update":
+            metadata = self.project.metadata
+            if "name" in params:
+                metadata.name = str(params["name"]).strip() or metadata.name
+            if "quick_benchmark_dataset" in params:
+                metadata.quick_benchmark_dataset = str(params["quick_benchmark_dataset"]).strip() or metadata.quick_benchmark_dataset
+            if "full_evaluation_dataset" in params:
+                metadata.full_evaluation_dataset = str(params["full_evaluation_dataset"]).strip() or metadata.full_evaluation_dataset
+            if "preferred_provider" in params:
+                metadata.preferred_provider = str(params["preferred_provider"])
+            if "preferred_judge_provider" in params:
+                judge_provider = str(params["preferred_judge_provider"]).strip()
+                metadata.preferred_judge_provider = judge_provider or metadata.preferred_provider
+            if "preferred_generation_model" in params:
+                metadata.preferred_generation_model = str(params["preferred_generation_model"]).strip() or metadata.preferred_generation_model
+            if "preferred_judge_model" in params:
+                metadata.preferred_judge_model = str(params["preferred_judge_model"]).strip() or metadata.preferred_judge_model
+            self.project.save()
+            self.workspace = self._build_workspace()
+            return self._settings_payload()
         if method == "project.open":
             return self._project_payload()
         if method == "project.create":
@@ -103,10 +208,41 @@ class PromptForgeHelper:
             prompt = self._resolve_prompt_ref(params)
             self.workspace.set_active_prompt(prompt)
             return {"prompt": self.workspace.load_visible_prompt(prompt).model_dump(mode="json")}
+        if method == "prompt.save":
+            prompt = self._resolve_prompt_ref(params)
+            revision = await self.workspace.save_prompt_workspace(
+                prompt,
+                system_prompt=str(params["system_prompt"]),
+                user_template=str(params["user_template"]),
+                purpose=str(params.get("purpose", "")),
+                expected_behavior=str(params.get("expected_behavior", "")),
+                success_criteria=str(params.get("success_criteria", "")),
+            )
+            return {
+                "revision": revision.model_dump(mode="json"),
+                "prompt": self.workspace.load_visible_prompt(prompt).model_dump(mode="json"),
+                "insights": await self._latest_insights(prompt),
+            }
         if method == "agent.prepare_edit":
             prompt = self._resolve_prompt_ref(params)
             proposal = await self.workspace.prepare_agent_request(prompt, str(params["request"]))
             return {"proposal": proposal.model_dump(mode="json")}
+        if method == "coach.reply":
+            prompt = self._resolve_prompt_ref(params)
+            reply = await self.workspace.coach(prompt, str(params["request"]))
+            return {"reply": reply}
+        if method == "agent.chat":
+            prompt = self._resolve_prompt_ref(params)
+            chat = await self.workspace.agent_chat(prompt, str(params["request"]))
+            payload: dict[str, Any] = {
+                "chat": chat.model_dump(mode="json"),
+            }
+            if chat.proposal is not None:
+                payload["proposal"] = chat.proposal.model_dump(mode="json")
+            if chat.revision is not None:
+                payload["revision"] = chat.revision.model_dump(mode="json")
+                payload["insights"] = await self._latest_insights(prompt)
+            return payload
         if method == "agent.apply_prepared_edit":
             prompt = self._resolve_prompt_ref(params)
             result = await self.workspace.apply_prepared_edit(prompt, str(params["proposal_id"]))
@@ -130,6 +266,35 @@ class PromptForgeHelper:
             prompt = self._resolve_prompt_ref(params)
             session = await self.workspace.ensure_session(prompt)
             return {"revisions": [revision.model_dump(mode="json") for revision in session.history.revisions]}
+        if method == "benchmarks.history":
+            prompt = self._resolve_prompt_ref(params)
+            session = self.workspace.current_session(prompt)
+            if session is None:
+                return {"history": [], "trend": []}
+            entries: list[dict[str, Any]] = []
+            for revision in session.history.revisions:
+                benchmark = revision.benchmark
+                full_evaluation = revision.full_evaluation
+                entries.append(
+                    {
+                        "revision_id": revision.revision_id,
+                        "created_at": revision.created_at,
+                        "source": revision.source,
+                        "note": revision.note,
+                        "score": benchmark.mean_effective_score if benchmark else None,
+                        "score_delta_vs_baseline": revision.benchmark_vs_baseline.mean_score_delta if revision.benchmark_vs_baseline else None,
+                        "pass_rate": benchmark.pass_rate if benchmark else None,
+                        "hard_fail_rate": benchmark.mean_hard_fail_rate if benchmark else None,
+                        "full_score": full_evaluation.mean_effective_score if full_evaluation else None,
+                    }
+                )
+            return {
+                "history": entries,
+                "trend": [
+                    {"revision_id": revision_id, "score": score}
+                    for revision_id, score in session.score_trend_points()
+                ],
+            }
         if method == "revisions.restore":
             prompt = self._resolve_prompt_ref(params)
             revision = await self.workspace.restore_revision(prompt, str(params["revision_id"]))
@@ -151,12 +316,6 @@ class PromptForgeHelper:
                     }
                     for row in session.benchmark_case_rows(limit=None, failures_only=True)
                 ]
-            }
-        if method == "events.subscribe":
-            return {
-                "subscribed": True,
-                "note": "Event streaming is reserved for a later helper revision.",
-                "events": [],
             }
         raise ValueError(f"Unsupported method: {method}")
 
@@ -198,11 +357,49 @@ class PromptForgeHelper:
                 },
                 "openai_key_set": bool(settings.openai_api_key),
                 "openrouter_key_set": bool(settings.openrouter_api_key),
+                "connections": self._connection_payload(),
             },
         }
 
+    def _settings_payload(self) -> dict[str, Any]:
+        metadata = self.project.metadata
+        return {
+            "project": self._project_payload(),
+            "settings": {
+                "name": metadata.name,
+                "quick_benchmark_dataset": metadata.quick_benchmark_dataset,
+                "full_evaluation_dataset": metadata.full_evaluation_dataset,
+                "preferred_provider": metadata.preferred_provider,
+                "preferred_judge_provider": metadata.preferred_judge_provider or metadata.preferred_provider,
+                "preferred_generation_model": metadata.preferred_generation_model,
+                "preferred_judge_model": metadata.preferred_judge_model,
+            },
+            "auth": self._status_payload()["auth"],
+        }
+
+    def _connection_payload(self) -> dict[str, Any]:
+        connections: dict[str, Any] = {}
+        for provider in ("openai", "openrouter", "codex"):
+            ready, detail = _provider_auth_status(provider)
+            connections[provider] = {
+                "name": provider,
+                "ready": ready,
+                "detail": detail,
+            }
+        return connections
+
     async def _latest_insights(self, prompt: str) -> dict[str, Any]:
-        session = await self.workspace.ensure_session(prompt)
+        session = self.workspace.current_session(prompt)
+        if session is None:
+            return {
+                "session_id": None,
+                "latest_revision_id": None,
+                "status_rows": [],
+                "diff_rows": [],
+                "weak_cases": [],
+                "failures": [],
+                "pending_edits": [],
+            }
         latest = session.latest_revision
         return {
             "session_id": session.manifest.session_id,

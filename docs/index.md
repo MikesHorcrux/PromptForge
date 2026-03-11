@@ -1,11 +1,11 @@
 # Documentation Index
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 This documentation set is organized for three audiences:
 
-- Developers who need to modify prompt packs, scoring, providers, or CLI behavior
-- Operators who need to run, diagnose, and recover the system safely
+- Developers who need to modify prompt packs, prompt-workspace behavior, scoring, providers, or CLI behavior
+- Operators who need to run, diagnose, and recover the system safely across the app and CLI surfaces
 - Stakeholders who need to understand value, boundaries, and outputs
 
 ```mermaid
@@ -67,11 +67,12 @@ See the [ADR index](adr/README.md) for context and document status.
 
 | ADR | Decision |
 |---|---|
-| [ADR-0001](adr/0001-cli-first-artifact-driven-runtime.md) | Keep v1 CLI-first and artifact-driven |
+| [ADR-0001](adr/0001-cli-first-artifact-driven-runtime.md) | Historical v1 CLI-first runtime decision |
 | [ADR-0002](adr/0002-multi-provider-gateway.md) | Separate generation and judge providers behind a gateway |
 | [ADR-0003](adr/0003-filesystem-artifacts-plus-sqlite-cache.md) | Persist outputs on disk and cache responses in SQLite |
 | [ADR-0004](adr/0004-schema-first-evaluation-contract.md) | Treat prompt packs, datasets, and artifacts as schema-first contracts |
 | [ADR-0005](adr/0005-compare-builds-on-full-child-runs.md) | Materialize two full evaluation runs before comparing them |
+| [ADR-0006](adr/0006-macos-app-helper-and-prompt-workspace.md) | Make the macOS app and local helper the primary interactive prompt-workspace surface |
 
 ## Source-of-truth code paths
 

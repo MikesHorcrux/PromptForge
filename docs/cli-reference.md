@@ -1,6 +1,6 @@
 # CLI Reference
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 PromptForge exposes one console entrypoint: `pf`.
 
@@ -186,7 +186,14 @@ What it does:
 
 If the app is not found, PromptForge prints guidance and expected install paths.
 
-Inside the app, the interactive slash commands are:
+Inside the app:
+
+- selecting a prompt opens an overview dashboard backed by `prompt.json`
+- plain messages are routed to the prompt-scoped agent chat flow
+- forge sessions are created lazily when the user chats, stages edits, saves into a session, or runs an evaluation
+- benchmarks are explicit actions, not hidden work on prompt open
+
+Interactive slash commands are still available:
 
 | Command | Meaning |
 |---|---|
@@ -196,16 +203,24 @@ Inside the app, the interactive slash commands are:
 | `/new <name>` | Create a new prompt pack |
 | `/clone <source> <name>` | Clone an existing prompt pack |
 | `/status` | Show provider, auth, and session info |
+| `/coach <request>` | Ask for focused prompt-improvement guidance |
+| `/edit <request>` | Ask the agent to prepare a staged edit proposal |
+| `/save` | Save current prompt overview and prompt files into the active workspace session |
 | `/prompt` | Print the current system prompt into the transcript |
 | `/template` | Print the current user template into the transcript |
 | `/bench` | Run the quick benchmark lane |
 | `/full` | Run the full evaluation lane |
 | `/diff` | Show the pending diff or the latest baseline delta |
 | `/failures` | Show hard-failing cases |
-| `/apply` | Apply the staged proposal and rerun the quick benchmark |
+| `/apply` | Apply the staged proposal |
 | `/discard` | Discard the staged proposal |
 | `/undo` | Restore the previous revision |
 | `/export <name>` | Export the current prompt to a new prompt pack |
+
+Notes:
+
+- Plain chat is now the default agent interface. Use slash commands only when you need a precise explicit action.
+- `/coach` is narrower than plain chat. It keeps the older prompt-advice framing when you want direct benchmark-driven guidance.
 
 ## `pf prompts`
 

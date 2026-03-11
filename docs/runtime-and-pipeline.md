@@ -1,9 +1,41 @@
 # Runtime and Pipeline
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
-This document follows a single evaluation from CLI invocation to final artifacts,
-then explains how comparison runs compose two child evaluations.
+This document covers two runtime paths:
+
+- the interactive app/helper path for prompt work
+- the batch evaluation path for `pf run` and `pf compare`
+
+It follows a single evaluation from CLI invocation to final artifacts, then
+explains how the app/helper path layers prompt-workspace behavior on top.
+
+## Interactive app pipeline at a glance
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant App as PromptForge.app
+  participant Helper as Local helper
+  participant Workspace as ForgeWorkspaceService
+  participant Forge as ForgeSession
+  participant Gateway as Provider gateway
+
+  User->>App: Open project and click prompt
+  App->>Helper: prompt.get + insights.latest + benchmarks.history
+  Helper->>Workspace: load_visible_prompt()
+  Workspace-->>Helper: prompt files + prompt.json
+  Helper-->>App: prompt dashboard payload
+
+  Note over App,Helper: No forge session or benchmark is created on prompt open
+
+  User->>App: Send plain chat / save / run bench
+  App->>Helper: agent.chat or prompt.save or bench.run_quick
+  Helper->>Workspace: ensure_session(prompt)
+  Workspace->>Forge: load or create lazy session
+  Forge->>Gateway: provider request only when needed
+  Helper-->>App: reply / proposal / revision / insights
+```
 
 ## Evaluation pipeline at a glance
 
@@ -105,6 +137,7 @@ stateDiagram-v2
 Inputs:
 
 - `prompt_packs/<version>/manifest.yaml`
+- `prompt_packs/<version>/prompt.json`
 - `prompt_packs/<version>/system.md`
 - `prompt_packs/<version>/user_template.md`
 - `prompt_packs/<version>/variables.schema.json`
@@ -113,6 +146,21 @@ Outputs:
 
 - `PromptPack` with `content_hash`
 - strict Jinja render contract for the user prompt
+- prompt intent metadata from `prompt.json`
+
+### Interactive workspace behavior
+
+Inputs:
+
+- selected project root
+- selected prompt pack
+- optional existing forge session under `var/forge/<session_id>/`
+
+Outputs:
+
+- overview payload for the app without forcing a session
+- lazy forge session creation on first real agent/edit/eval action
+- prompt-scoped chat history, pending edits, and benchmark history once a session exists
 
 ### Dataset loading
 
@@ -204,6 +252,7 @@ The strongest checkpoints are:
 - `run.json` and `run.lock.json` written before case execution starts
 - local response cache writes after each successful uncached generation
 - final artifact write at the end of scoring
+- forge session files under `var/forge/<session_id>/` after the first interactive workspace action
 
 Important limitation:
 
@@ -255,6 +304,8 @@ Key nuance:
 - `pf report` can rebuild `report.md` from existing `scores.json` or `comparison.json`
 - cache reuse depends on `config_hash`; change the prompt pack, dataset, provider, model, or scoring config and the cache key changes
 - if the local cache is untrusted or stale, deleting `var/state/cache.sqlite3` is safe
+- app prompt open latency should be cheap because prompt dashboards do not auto-run benchmarks
+- the first agent interaction on a prompt is expected to be slower than subsequent turns because that is when the forge session is created
 
 ## Source of truth
 
@@ -262,4 +313,3 @@ Key nuance:
 - [`../src/promptforge/runtime/gateway.py`](../src/promptforge/runtime/gateway.py)
 - [`../src/promptforge/scoring/rules.py`](../src/promptforge/scoring/rules.py)
 - [`../src/promptforge/scoring/judge.py`](../src/promptforge/scoring/judge.py)
-

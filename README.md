@@ -1,6 +1,6 @@
 # PromptForge
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
 PromptForge is a macOS-first prompt engineering workbench with a local Python
 engine. The app is the main interactive surface. The CLI stays in place for
@@ -15,9 +15,15 @@ It is built for:
 What it does:
 
 - Loads a versioned prompt pack from `prompt_packs/<version>/`
+- Keeps per-prompt intent and editing context in `prompt_packs/<version>/prompt.json`
 - Loads a JSONL evaluation dataset from `datasets/`
-- Opens a local macOS app for chat-first prompt iteration
+- Opens a local macOS app for prompt-first, chat-driven iteration
+- Includes an in-app settings surface for providers, models, datasets, auth status, and first-run onboarding
+- Opens each prompt into a simpler prompt-first flow with an overview dashboard and a dedicated chat editor
+- Treats plain chat messages as an agent conversation for the active prompt instead of requiring slash commands for every action
+- Shows benchmark trend history and revision summaries in the macOS UI
 - Uses a local helper process over a Unix socket for agent edits and benchmark calls
+- Resolves app API keys from macOS Keychain before falling back to inherited local env values
 - Runs each case through one of three provider paths: `openai`, `openrouter`, or `codex`
 - Scores outputs with deterministic rule checks plus a rubric judge
 - Compares prompt versions case-by-case and overall
@@ -75,17 +81,24 @@ What the wizard does:
 - Prompts for API keys where needed
 - Checks `codex login status` and can launch `codex login`
 
-On macOS, `pf forge` now opens `PromptForge.app` for the current project. The
-app handles prompt chat, staged edit proposals, apply/discard, and benchmark
-feedback. The CLI remains the operator surface.
+On macOS, `pf forge` opens `PromptForge.app` for the current project. The app
+handles prompt selection, prompt intent fields, prompt-file editing, agent chat,
+staged edit proposals, apply/discard, settings, onboarding, and benchmark
+feedback. The helper RPC exposes a live long-poll event stream through
+`events.subscribe`, and the app hydrates OpenAI/OpenRouter API keys from the
+macOS Keychain when launching the helper. Prompt opens are intentionally cheap:
+the app loads prompt files and dashboard state first, then creates a forge
+session only when the user chats, stages edits, saves into a session, or runs an
+evaluation. The CLI remains the setup, status, and batch-evaluation surface.
 
 ## Core workflow
 
-1. Create or update a prompt pack in `prompt_packs/<version>/`, or use `pf prompts create`.
+1. Create or update a prompt pack in `prompt_packs/<version>/`, including `prompt.json`, or use `pf prompts create`.
 2. Add or update dataset cases in `datasets/*.jsonl`.
-3. Use `pf forge` to open the app for the prompt editing loop.
-4. Inspect `report.md`, `scores.json`, `comparison.json`, and `run.lock.json`.
-5. Keep the winning prompt pack version and repeat.
+3. Use `pf forge` to open the app and work through a prompt's overview and editor flow.
+4. Chat with the agent in plain language, then explicitly run `Run Bench` or `Full Eval` when you want evidence.
+5. Inspect `report.md`, `scores.json`, `comparison.json`, and `run.lock.json`.
+6. Keep the winning prompt pack version and repeat.
 
 ## Key commands
 
@@ -112,7 +125,7 @@ pf run --prompt v1 --dataset datasets/core.jsonl --provider codex --judge-provid
 ## Repository layout
 
 ```text
-prompt_packs/                 Versioned prompt packs
+prompt_packs/                 Versioned prompt packs, including per-prompt prompt.json intent files
 datasets/                     JSONL evaluation datasets
 src/promptforge/              CLI, runtime, scoring, providers, and setup flow
 src/promptforge/helper/       Local helper server used by the macOS app
