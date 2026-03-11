@@ -114,8 +114,8 @@ def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path,
 
     assert session.manifest.session_id.startswith("forge_")
     assert session.baseline_revision.revision_id == "r000"
-    assert session.baseline_revision.benchmark is not None
-    assert gateway.generation_calls == 6
+    assert session.baseline_revision.benchmark is None
+    assert gateway.generation_calls == 0
 
     system_path, system_content = session.read_prompt_file("system")
     assert system_path.name == "system.md"
@@ -128,11 +128,16 @@ def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path,
     )
 
     assert revision.revision_id == "r001"
-    assert revision.benchmark is not None
-    assert revision.benchmark.mean_effective_score > session.baseline_revision.benchmark.mean_effective_score
-    assert revision.benchmark_vs_baseline is not None
-    assert revision.benchmark_vs_baseline.winner == "candidate"
+    assert revision.benchmark is None
     assert len(session.history.revisions) == 2
+    assert gateway.generation_calls == 0
+
+    benchmark_revision = asyncio.run(session.run_manual_benchmark())
+    assert benchmark_revision.benchmark is not None
+    assert session.baseline_revision.benchmark is not None
+    assert benchmark_revision.benchmark.mean_effective_score > session.baseline_revision.benchmark.mean_effective_score
+    assert benchmark_revision.benchmark_vs_baseline is not None
+    assert benchmark_revision.benchmark_vs_baseline.winner == "candidate"
     assert gateway.generation_calls == 12
     assert session.latest_diff_rows(reference="baseline")
     case_rows = session.benchmark_case_rows(limit=3)
@@ -153,7 +158,7 @@ def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path,
 
     reloaded = ForgeSession.load(session_id=session.manifest.session_id, gateway=gateway)
     assert reloaded.latest_revision is not None
-    assert reloaded.latest_revision.revision_id == "r001"
+    assert reloaded.latest_revision.revision_id == "r002"
 
 
 def test_prepare_and_apply_agent_request_stages_then_creates_revision(tmp_path, monkeypatch) -> None:
@@ -202,7 +207,10 @@ def test_prepare_and_apply_agent_request_stages_then_creates_revision(tmp_path, 
     assert before != (session.working_prompt_dir / "system.md").read_text(encoding="utf-8")
     assert "Add improved guidance." in (session.working_prompt_dir / "system.md").read_text(encoding="utf-8")
     assert "before/system.md" in result.diff_preview
-    assert result.revision.benchmark is not None
+    assert result.revision.benchmark is None
+
+    checked = asyncio.run(session.run_manual_benchmark())
+    assert checked.benchmark is not None
     assert session.benchmark_case_rows(limit=2)
 
 

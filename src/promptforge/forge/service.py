@@ -8,32 +8,50 @@ import shutil
 import tempfile
 from pathlib import Path
 from statistics import fmean, pstdev
+from typing import Any
 
 import yaml
 
 from promptforge.core.config import settings
 from promptforge.core.logging import configure_logging, log_event
-from promptforge.core.models import RunConfig, RunRequest, ScoresArtifact, TraitName, utc_now_iso
+from promptforge.core.models import (
+    DatasetCase,
+    ModelExecutionResult,
+    RunConfig,
+    RunRequest,
+    ScoresArtifact,
+    TraitName,
+    utc_now_iso,
+)
 from promptforge.datasets.loader import load_dataset
 from promptforge.forge.models import (
     AgentEditResult,
     AgentChatResult,
+    AssertionResult,
     BenchmarkCaseSummary,
     BenchmarkDiff,
     BenchmarkSnapshot,
+    BuilderAction,
     ChatHistory,
     ChatTurn,
+    DecisionRecord,
     ForgeHistory,
     PendingEdits,
+    PlaygroundRun,
+    PlaygroundSample,
     PreparedAgentEdit,
+    ReviewCase,
+    ReviewSummary,
     ForgeRevision,
     ForgeSessionManifest,
     RevisionSource,
 )
-from promptforge.prompts.loader import load_prompt_pack
+from promptforge.prompts.brief import ensure_prompt_brief
+from promptforge.prompts.loader import load_prompt_pack, render_user_prompt
 from promptforge.runtime.artifacts import ArtifactStore
 from promptforge.runtime.gateway import ModelGateway
 from promptforge.runtime.run_service import EvaluationService, generate_run_id
+from promptforge.scenarios.models import ScenarioAssertion, ScenarioCase, ScenarioSuite
 
 
 EDITABLE_PROMPT_FILES = (
@@ -248,6 +266,12 @@ class ForgeSession:
         return self.get_revision(self.manifest.latest_revision_id)
 
     @property
+    def latest_review(self) -> ReviewSummary | None:
+        if not self.history.reviews:
+            return None
+        return self.history.reviews[-1]
+
+    @property
     def working_prompt_dir(self) -> Path:
         return Path(self.manifest.working_prompt_dir)
 
@@ -268,7 +292,15 @@ class ForgeSession:
         if target not in file_map:
             raise ValueError(f"Unsupported prompt target: {target}")
         path = file_map[target]
+        if target == "brief" and not path.exists():
+            ensure_prompt_brief(self.working_prompt_dir)
         return path, path.read_text(encoding="utf-8")
+
+    def list_builder_actions(self, *, limit: int | None = 40) -> list[BuilderAction]:
+        actions = list(self.history.builder_actions)
+        if limit is not None:
+            actions = actions[-limit:]
+        return actions
 
     def list_pending_edits(self) -> list[PreparedAgentEdit]:
         return list(self.pending_edits.edits)
@@ -317,6 +349,12 @@ class ForgeSession:
             proposal_id=proposal_id,
             changed_files=changed_files,
         )
+        self._record_builder_action(
+            kind="proposal",
+            title="Prepared agent proposal",
+            details=proposal.summary,
+            files=changed_files,
+        )
         return proposal
 
     async def apply_prepared_edit(self, proposal_id: str) -> AgentEditResult:
@@ -344,6 +382,12 @@ class ForgeSession:
             proposal_id=proposal_id,
             revision_id=revision.revision_id if revision else None,
         )
+        self._record_builder_action(
+            kind="apply",
+            title="Applied staged proposal",
+            details=proposal.summary,
+            files=proposal.changed_files,
+        )
         return AgentEditResult(
             summary=proposal.summary,
             changed_files=proposal.changed_files,
@@ -354,6 +398,11 @@ class ForgeSession:
     def discard_prepared_edit(self, proposal_id: str) -> None:
         self.get_pending_edit(proposal_id)
         self._drop_pending_edit(proposal_id)
+        self._record_builder_action(
+            kind="proposal",
+            title="Discarded staged proposal",
+            details=f"Discarded {proposal_id}.",
+        )
         log_event(
             self.logger,
             "forge_agent_edit_discarded",
@@ -381,13 +430,20 @@ class ForgeSession:
     async def edit_prompt_file(self, *, target: str, content: str, note: str | None = None) -> ForgeRevision:
         path, _ = self.read_prompt_file(target)
         path.write_text(content.rstrip() + "\n", encoding="utf-8")
-        return await self._create_revision_from_prompt_dir(
+        revision = await self._create_revision_from_prompt_dir(
             prompt_dir=self.working_prompt_dir,
             source="manual_edit",
             note=note or f"Edited {path.name}.",
             changed_files=[path.name],
             run_benchmark=False,
         )
+        self._record_builder_action(
+            kind="apply",
+            title="Edited prompt file",
+            details=revision.note,
+            files=[path.name],
+        )
+        return revision
 
     async def edit_prompt_files(
         self,
@@ -414,43 +470,70 @@ class ForgeSession:
                 changed_files.append(path.name)
         if not changed_files:
             raise ValueError("No prompt changes were detected.")
-        return await self._create_revision_from_prompt_dir(
+        revision = await self._create_revision_from_prompt_dir(
             prompt_dir=self.working_prompt_dir,
             source="manual_edit",
             note=note or "Edited prompt files from the forge workspace.",
             changed_files=changed_files,
             run_benchmark=False,
         )
+        self._record_builder_action(
+            kind="apply",
+            title="Saved prompt workspace",
+            details=revision.note,
+            files=changed_files,
+        )
+        return revision
 
     async def run_manual_benchmark(self, *, note: str | None = None) -> ForgeRevision:
-        return await self._create_revision_from_prompt_dir(
+        revision = await self._create_revision_from_prompt_dir(
             prompt_dir=self.working_prompt_dir,
             source="manual_benchmark",
             note=note or "Manual benchmark run.",
             changed_files=[],
         )
+        self._record_builder_action(
+            kind="benchmark",
+            title="Ran quick check",
+            details=revision.note,
+        )
+        return revision
 
     async def reset_to_baseline(self, *, note: str | None = None) -> ForgeRevision:
         baseline_dir = Path(self.manifest.baseline_prompt_dir)
         self._replace_working_prompt_dir_from(baseline_dir)
-        return await self._create_revision_from_prompt_dir(
+        revision = await self._create_revision_from_prompt_dir(
             prompt_dir=self.working_prompt_dir,
             source="reset",
             note=note or "Reset working prompt to the baseline snapshot.",
             changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
             run_benchmark=False,
         )
+        self._record_builder_action(
+            kind="restore",
+            title="Reset to baseline",
+            details=revision.note,
+            files=revision.changed_files,
+        )
+        return revision
 
     async def restore_revision(self, revision_id: str, *, note: str | None = None) -> ForgeRevision:
         revision = self.get_revision(revision_id)
         self._replace_working_prompt_dir_from(Path(revision.prompt_snapshot_dir))
-        return await self._create_revision_from_prompt_dir(
+        restored = await self._create_revision_from_prompt_dir(
             prompt_dir=self.working_prompt_dir,
             source="restore",
             note=note or f"Restored working prompt to {revision_id}.",
             changed_files=["prompt.json", "system.md", "user_template.md", "manifest.yaml", "variables.schema.json"],
             run_benchmark=False,
         )
+        self._record_builder_action(
+            kind="restore",
+            title="Restored revision",
+            details=restored.note,
+            files=restored.changed_files,
+        )
+        return restored
 
     async def run_full_evaluation(self, *, note: str | None = None) -> ForgeRevision:
         latest = self.latest_revision
@@ -477,13 +560,170 @@ class ForgeSession:
             mean_effective_score=snapshot.mean_effective_score,
             dataset_path=self.manifest.full_dataset_path,
         )
+        self._record_builder_action(
+            kind="full_evaluation",
+            title="Ran full suite",
+            details=note or "Full evaluation completed.",
+        )
         return latest
+
+    async def run_playground(
+        self,
+        *,
+        input_payload: dict[str, Any],
+        context: str | dict[str, Any] | list[Any] | None = None,
+        samples: int = 1,
+        compare_baseline: bool = True,
+    ) -> PlaygroundRun:
+        samples = max(1, samples)
+        case = DatasetCase(
+            id="playground",
+            input=input_payload,
+            context=context,
+        )
+        candidate_samples = await self._generate_playground_samples(
+            prompt_dir=self.working_prompt_dir,
+            case=case,
+            samples=samples,
+            prefix="candidate",
+        )
+        baseline_samples: list[PlaygroundSample] = []
+        if compare_baseline:
+            baseline_samples = await self._generate_playground_samples(
+                prompt_dir=Path(self.manifest.baseline_prompt_dir),
+                case=case,
+                samples=samples,
+                prefix="baseline",
+            )
+        run = PlaygroundRun(
+            run_id=generate_run_id("play"),
+            prompt_ref=self.manifest.baseline_prompt_ref,
+            input_payload=input_payload,
+            context=context,
+            candidate_samples=candidate_samples,
+            baseline_samples=baseline_samples,
+        )
+        self.history.playground_runs.append(run)
+        self._persist()
+        self._record_builder_action(
+            kind="playground",
+            title="Ran playground trial",
+            details=f"{samples} sample(s) on current prompt.",
+        )
+        return run
+
+    async def run_scenario_suite(self, suite: ScenarioSuite, *, repeats: int | None = None) -> ReviewSummary:
+        candidate_repeats = max(1, repeats or self.manifest.bench_repeats)
+        if not suite.cases:
+            raise ValueError(f"Scenario suite `{suite.name}` has no cases.")
+        with tempfile.TemporaryDirectory(prefix="promptforge-suite-") as temp_dir:
+            dataset_path = Path(temp_dir) / f"{suite.suite_id}.jsonl"
+            dataset_rows = [
+                case.to_dataset_case().model_dump(mode="json")
+                for case in suite.cases
+            ]
+            dataset_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in dataset_rows) + "\n",
+                encoding="utf-8",
+            )
+            candidate = await self._run_snapshot(
+                prompt_dir=self.working_prompt_dir,
+                dataset_path=str(dataset_path),
+                repeats=candidate_repeats,
+                label="benchmark",
+            )
+            baseline = await self._run_snapshot(
+                prompt_dir=Path(self.manifest.baseline_prompt_dir),
+                dataset_path=str(dataset_path),
+                repeats=candidate_repeats,
+                label="benchmark",
+            )
+            diff = self._compare_snapshots(
+                candidate=candidate,
+                reference=baseline,
+                reference_label="baseline",
+            )
+            review = self._build_review_summary(
+                suite=suite,
+                candidate=candidate,
+                baseline=baseline,
+                diff=diff,
+            )
+        self.history.reviews.append(review)
+        self._persist()
+        self._record_builder_action(
+            kind="scenario_run",
+            title="Ran scenario suite",
+            details=f"{suite.name} with {len(suite.cases)} case(s).",
+        )
+        return review
+
+    def record_decision(
+        self,
+        *,
+        status: str,
+        summary: str,
+        rationale: str = "",
+        review_id: str | None = None,
+        suite_id: str | None = None,
+    ) -> DecisionRecord:
+        if status not in {"iterate", "accept_with_regressions", "promote", "reject"}:
+            raise ValueError(f"Unsupported decision status: {status}")
+        revision_id = self.latest_revision.revision_id if self.latest_revision else None
+        decision = DecisionRecord(
+            decision_id=self._next_decision_id(),
+            status=status,
+            summary=summary,
+            rationale=rationale,
+            review_id=review_id,
+            suite_id=suite_id,
+            revision_id=revision_id,
+        )
+        self.history.decisions.append(decision)
+        self._persist()
+        self._record_builder_action(
+            kind="decision",
+            title="Recorded review decision",
+            details=summary,
+        )
+        return decision
+
+    async def promote_current_to_baseline(
+        self,
+        *,
+        summary: str,
+        rationale: str = "",
+        review_id: str | None = None,
+        suite_id: str | None = None,
+    ) -> DecisionRecord:
+        source_dir = self.working_prompt_dir
+        baseline_dir = Path(self.manifest.baseline_prompt_dir)
+        if baseline_dir.exists():
+            shutil.rmtree(baseline_dir)
+        shutil.copytree(source_dir, baseline_dir)
+        baseline_revision = await self._create_revision_from_prompt_dir(
+            prompt_dir=baseline_dir,
+            source="baseline",
+            note="Promoted current candidate to baseline.",
+            changed_files=list(EDITABLE_PROMPT_FILES),
+            run_benchmark=False,
+        )
+        self.manifest.baseline_revision_id = baseline_revision.revision_id
+        self._persist()
+        return self.record_decision(
+            status="promote",
+            summary=summary,
+            rationale=rationale,
+            review_id=review_id,
+            suite_id=suite_id,
+        )
 
     async def coach(self, request: str) -> str:
         return await self._generate_chat_reply(
             request,
             include_history=False,
             system_instructions=COACH_SYSTEM_PROMPT,
+            prompt_version="forge-coach",
             response_instructions=(
                 "Focus on prompt-improvement guidance. Explain what to change, why it matters, and include a revised snippet when useful."
             ),
@@ -495,6 +735,11 @@ class ForgeSession:
             return AgentChatResult(kind="reply", message="Ask about the prompt, request changes, or tell me to run an evaluation.")
 
         self._record_chat_turn("user", normalized)
+        self._record_builder_action(
+            kind="chat",
+            title="Builder chat",
+            details=normalized,
+        )
 
         if self._is_simple_greeting(normalized):
             message = "Hey. I can help edit this prompt, explain its behavior, inspect failures, or run evaluations. What do you want to do?"
@@ -542,6 +787,7 @@ class ForgeSession:
             normalized,
             include_history=True,
             system_instructions=AGENT_CHAT_SYSTEM_PROMPT,
+            prompt_version="forge-chat",
             response_instructions=(
                 "Reply conversationally. If the user is asking for advice, give it plainly. "
                 "If they are greeting or asking a simple question, answer naturally without forcing prompt-edit structure."
@@ -556,6 +802,7 @@ class ForgeSession:
         *,
         include_history: bool,
         system_instructions: str,
+        prompt_version: str,
         response_instructions: str,
     ) -> str:
         latest = self.latest_revision
@@ -591,8 +838,8 @@ class ForgeSession:
             f"{response_instructions.strip()}\n"
         )
         response = await self.gateway.generate(
-            prompt_version="forge-chat",
-            case_id="forge-chat",
+            prompt_version=prompt_version,
+            case_id=prompt_version,
             model=self.manifest.agent_model,
             system_prompt=system_instructions,
             user_prompt=guidance_prompt,
@@ -1077,6 +1324,242 @@ class ForgeSession:
                 f"- {case_id}: score {score}/5.00, hard fail {hard_fail}, reasons: {reasons}, summary: {summary}"
             )
         return "\n".join(lines)
+
+    async def _generate_playground_samples(
+        self,
+        *,
+        prompt_dir: Path,
+        case: DatasetCase,
+        samples: int,
+        prefix: str,
+    ) -> list[PlaygroundSample]:
+        prompt_pack = load_prompt_pack(prompt_dir)
+        user_prompt = render_user_prompt(prompt_pack, case)
+        outputs: list[PlaygroundSample] = []
+        for index in range(samples):
+            result = await self.gateway.generate(
+                prompt_version=str(prompt_dir),
+                case_id=f"{prefix}-{index}",
+                model=self.manifest.model,
+                system_prompt=prompt_pack.system_prompt,
+                user_prompt=user_prompt,
+                run_id=self.manifest.session_id,
+                config_hash=f"{self.manifest.session_id}-{prefix}-playground",
+                run_config=self.manifest.run_config.model_copy(
+                    update={
+                        "concurrency": 1,
+                        "retries": 0,
+                        "failure_threshold": 1.0,
+                        "use_cache": False,
+                    }
+                ),
+            )
+            if result.error:
+                raise RuntimeError(result.error)
+            outputs.append(
+                PlaygroundSample(
+                    sample_id=f"{prefix}-{index}",
+                    output_text=(result.output_text or "").strip(),
+                    latency_ms=result.latency_ms,
+                    usage=result.usage,
+                    warnings=result.warnings,
+                )
+            )
+        return outputs
+
+    def _build_review_summary(
+        self,
+        *,
+        suite: ScenarioSuite,
+        candidate: BenchmarkSnapshot,
+        baseline: BenchmarkSnapshot | None,
+        diff: BenchmarkDiff | None,
+    ) -> ReviewSummary:
+        artifact_store = ArtifactStore()
+        candidate_run_id = candidate.run_ids[-1]
+        candidate_dir = artifact_store.resolve_run_dir(candidate_run_id)
+        candidate_scores = ScoresArtifact.model_validate(
+            artifact_store.read_json(candidate_dir / "scores.json")
+        )
+        candidate_outputs = {
+            row["case_id"]: row
+            for row in artifact_store.read_jsonl(candidate_dir / "outputs.jsonl")
+        }
+        baseline_scores_map: dict[str, Any] = {}
+        baseline_outputs: dict[str, Any] = {}
+        if baseline and baseline.run_ids:
+            baseline_dir = artifact_store.resolve_run_dir(baseline.run_ids[-1])
+            loaded_baseline_scores = ScoresArtifact.model_validate(
+                artifact_store.read_json(baseline_dir / "scores.json")
+            )
+            baseline_scores_map = {
+                case.case_id: case for case in loaded_baseline_scores.cases
+            }
+            baseline_outputs = {
+                row["case_id"]: row
+                for row in artifact_store.read_jsonl(baseline_dir / "outputs.jsonl")
+            }
+
+        candidate_scores_map = {case.case_id: case for case in candidate_scores.cases}
+        latest_files = self.latest_revision.changed_files if self.latest_revision else []
+        cases: list[ReviewCase] = []
+        for scenario_case in suite.cases:
+            candidate_case = candidate_scores_map.get(scenario_case.case_id)
+            baseline_case = baseline_scores_map.get(scenario_case.case_id)
+            candidate_output = candidate_outputs.get(scenario_case.case_id, {})
+            baseline_output = baseline_outputs.get(scenario_case.case_id, {})
+            regression = False
+            if candidate_case and baseline_case:
+                regression = candidate_case.effective_weighted_score < baseline_case.effective_weighted_score
+            assertions = self._evaluate_assertions(
+                scenario_case,
+                candidate_case,
+                candidate_output,
+            )
+            cases.append(
+                ReviewCase(
+                    case_id=scenario_case.case_id,
+                    title=scenario_case.title or scenario_case.case_id,
+                    candidate_score=candidate_case.effective_weighted_score if candidate_case else None,
+                    baseline_score=baseline_case.effective_weighted_score if baseline_case else None,
+                    regression=regression,
+                    flaky=bool(
+                        next(
+                            (
+                                summary.hard_fail_rate > 0 and summary.hard_fail_rate < 1
+                                for summary in candidate.cases
+                                if summary.case_id == scenario_case.case_id
+                            ),
+                            False,
+                        )
+                    ),
+                    candidate_output=str(candidate_output.get("output_text", "")).strip(),
+                    baseline_output=str(baseline_output.get("output_text", "")).strip(),
+                    diff_preview=self._build_output_diff(
+                        str(baseline_output.get("output_text", "")).strip(),
+                        str(candidate_output.get("output_text", "")).strip(),
+                        scenario_case.case_id,
+                    ),
+                    hard_fail_reasons=candidate_case.hard_fail_reasons if candidate_case else [],
+                    assertions=assertions,
+                    likely_changed_files=latest_files,
+                )
+            )
+        return ReviewSummary(
+            review_id=self._next_review_id(),
+            suite_id=suite.suite_id,
+            suite_name=suite.name,
+            revision_id=self.latest_revision.revision_id if self.latest_revision else None,
+            candidate=candidate,
+            baseline=baseline,
+            diff=diff,
+            cases=cases,
+        )
+
+    def _evaluate_assertions(
+        self,
+        scenario_case: ScenarioCase,
+        candidate_case: Any,
+        candidate_output: dict[str, Any],
+    ) -> list[AssertionResult]:
+        output_text = str(candidate_output.get("output_text", "") or "")
+        usage = candidate_output.get("usage", {}) or {}
+        latency_ms = int(candidate_output.get("latency_ms", 0) or 0)
+        word_count = len(output_text.split())
+        results: list[AssertionResult] = []
+        for assertion in scenario_case.assertions:
+            status = "passed"
+            detail = "Passed."
+            if assertion.kind == "required_string":
+                expected = assertion.expected_text or ""
+                if expected.lower() not in output_text.lower():
+                    status = "failed"
+                    detail = f"Missing required text: {expected}"
+            elif assertion.kind == "forbidden_string":
+                expected = assertion.expected_text or ""
+                if expected.lower() in output_text.lower():
+                    status = "failed"
+                    detail = f"Found forbidden text: {expected}"
+            elif assertion.kind == "required_section":
+                expected = assertion.expected_text or ""
+                if expected and expected.lower() not in output_text.lower():
+                    status = "failed"
+                    detail = f"Missing section: {expected}"
+            elif assertion.kind == "max_words":
+                threshold = int(assertion.threshold or 0)
+                if threshold and word_count > threshold:
+                    status = "failed"
+                    detail = f"Output used {word_count} words; limit is {threshold}."
+            elif assertion.kind == "trait_minimum":
+                threshold = int(assertion.threshold or 0)
+                trait_score = candidate_case.trait_scores.get(assertion.trait).score if (candidate_case and assertion.trait) else 0
+                if trait_score < threshold:
+                    status = "failed"
+                    detail = f"{assertion.trait} scored {trait_score}; expected at least {threshold}."
+            elif assertion.kind == "max_latency_ms":
+                threshold = int(assertion.threshold or 0)
+                if threshold and latency_ms > threshold:
+                    status = "failed"
+                    detail = f"Latency was {latency_ms}ms; limit is {threshold}ms."
+            elif assertion.kind == "max_total_tokens":
+                threshold = int(assertion.threshold or 0)
+                total_tokens = int(usage.get("total_tokens", 0) or 0)
+                if threshold and total_tokens > threshold:
+                    status = "failed"
+                    detail = f"Total tokens were {total_tokens}; limit is {threshold}."
+            if status == "failed" and assertion.severity == "warn":
+                status = "warn"
+            results.append(
+                AssertionResult(
+                    assertion_id=assertion.assertion_id,
+                    label=assertion.label,
+                    status=status,
+                    detail=detail,
+                )
+            )
+        return results
+
+    def _build_output_diff(self, before: str, after: str, case_id: str) -> str:
+        if not before and not after:
+            return ""
+        return "\n".join(
+            difflib.unified_diff(
+                before.splitlines(),
+                after.splitlines(),
+                fromfile=f"baseline/{case_id}",
+                tofile=f"candidate/{case_id}",
+                lineterm="",
+            )
+        )
+
+    def _record_builder_action(
+        self,
+        *,
+        kind: str,
+        title: str,
+        details: str = "",
+        files: list[str] | None = None,
+    ) -> None:
+        self.history.builder_actions.append(
+            BuilderAction(
+                action_id=self._next_action_id(),
+                kind=kind,  # type: ignore[arg-type]
+                title=title,
+                details=details,
+                files=files or [],
+            )
+        )
+        self.history.builder_actions = self.history.builder_actions[-100:]
+        self._persist()
+
+    def _next_action_id(self) -> str:
+        return f"a{len(self.history.builder_actions):03d}"
+
+    def _next_review_id(self) -> str:
+        return f"rv{len(self.history.reviews):03d}"
+
+    def _next_decision_id(self) -> str:
+        return f"d{len(self.history.decisions):03d}"
 
     def _persist(self) -> None:
         self.session_dir.mkdir(parents=True, exist_ok=True)

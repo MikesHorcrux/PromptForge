@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 PROMPT_BRIEF_FILE = "prompt.json"
@@ -14,6 +14,14 @@ class PromptBrief(BaseModel):
     purpose: str = ""
     expected_behavior: str = ""
     success_criteria: str = ""
+    baseline_prompt_ref: str = ""
+    primary_scenario_suites: list[str] = Field(default_factory=list)
+    owner: str = ""
+    audience: str = ""
+    release_notes: str = ""
+    builder_agent_model: str = "gpt-5-mini"
+    builder_permission_mode: str = "proposal_only"
+    research_policy: str = "prompt_only"
 
 
 def default_prompt_brief(*, description: str = "") -> PromptBrief:

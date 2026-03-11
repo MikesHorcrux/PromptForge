@@ -21,6 +21,7 @@ class Settings(BaseModel):
     log_level: str = os.getenv("PF_LOG_LEVEL", "INFO")
     prompt_pack_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_PROMPT_PACK_DIR", "prompt_packs")))
     dataset_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_DATASET_DIR", "datasets")))
+    scenario_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_SCENARIO_DIR", "scenarios")))
     var_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_VAR_DIR", "var")))
     provider: str = os.getenv("PF_PROVIDER", "openai")
     judge_provider: str | None = os.getenv("PF_JUDGE_PROVIDER") or None

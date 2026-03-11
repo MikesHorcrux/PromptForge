@@ -43,15 +43,17 @@ flowchart TD
 ### Non-technical stakeholder
 
 1. [README](../README.md)
-2. [Architecture](architecture.md)
-3. [Eval philosophy](eval-philosophy.md)
-4. [FAQ](faq.md)
+2. [Product spec](product-spec.md)
+3. [Architecture](architecture.md)
+4. [Eval philosophy](eval-philosophy.md)
+5. [FAQ](faq.md)
 
 ## Core docs
 
 | Document | Purpose |
 |---|---|
 | [Architecture](architecture.md) | System overview, module responsibilities, runtime boundaries |
+| [Product spec](product-spec.md) | Proposed product direction, core surfaces, and updates needed |
 | [Data model](data-model.md) | Core entities, persisted files, cache table, versioning notes |
 | [Runtime and pipeline](runtime-and-pipeline.md) | Stage-by-stage execution flow, retries, failure points, checkpoints |
 | [CLI reference](cli-reference.md) | Commands, flags, examples, and troubleshooting by command |

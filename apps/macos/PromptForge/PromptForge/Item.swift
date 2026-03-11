@@ -129,22 +129,30 @@ struct AppSettingsDraft: Equatable {
     var judgeProvider: String = "openai"
     var generationModel: String = "gpt-5.4"
     var judgeModel: String = "gpt-5-mini"
+    var agentModel: String = "gpt-5-mini"
     var quickBenchmarkDataset: String = "datasets/core.jsonl"
     var fullEvaluationDataset: String = "datasets/core.jsonl"
+    var quickBenchmarkRepeats: Int = 1
+    var fullEvaluationRepeats: Int = 1
+    var builderPermissionMode: String = "proposal_only"
+    var builderResearchPolicy: String = "prompt_only"
 }
 
 enum PromptWorkspaceMode: String, CaseIterable, Identifiable {
-    case overview
-    case editor
+    case studio
+    case tests
+    case review
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .overview:
-            return "Overview"
-        case .editor:
-            return "Editor"
+        case .studio:
+            return "Studio"
+        case .tests:
+            return "Tests"
+        case .review:
+            return "Review"
         }
     }
 }
@@ -153,8 +161,132 @@ struct PromptWorkspaceDraft: Equatable {
     var purpose: String = ""
     var expectedBehavior: String = ""
     var successCriteria: String = ""
+    var baselinePromptRef: String = ""
+    var primaryScenarioSuites: [String] = []
+    var owner: String = ""
+    var audience: String = ""
+    var releaseNotes: String = ""
+    var builderAgentModel: String = "gpt-5-mini"
+    var builderPermissionMode: String = "proposal_only"
+    var researchPolicy: String = "prompt_only"
     var systemPrompt: String = ""
     var userTemplate: String = ""
+}
+
+struct ScenarioAssertionModel: Identifiable, Equatable {
+    let assertionID: String
+    var label: String
+    var kind: String
+    var expectedText: String
+    var threshold: Double?
+    var trait: String
+    var severity: String
+
+    var id: String { assertionID }
+}
+
+struct ScenarioCaseModel: Identifiable, Equatable {
+    let caseID: String
+    var title: String
+    var inputJSON: String
+    var contextText: String
+    var tags: [String]
+    var notes: String
+    var assertions: [ScenarioAssertionModel]
+
+    var id: String { caseID }
+}
+
+struct ScenarioSuiteModel: Identifiable, Equatable {
+    let suiteID: String
+    var name: String
+    var description: String
+    var linkedPrompts: [String]
+    var cases: [ScenarioCaseModel]
+    var createdAt: String
+    var updatedAt: String
+
+    var id: String { suiteID }
+}
+
+struct PlaygroundSampleModel: Identifiable, Equatable {
+    let sampleID: String
+    let outputText: String
+    let latencyMS: Int
+    let totalTokens: Int
+
+    var id: String { sampleID }
+}
+
+struct PlaygroundRunModel: Identifiable, Equatable {
+    let runID: String
+    let createdAt: String
+    let inputJSON: String
+    let contextText: String
+    let candidateSamples: [PlaygroundSampleModel]
+    let baselineSamples: [PlaygroundSampleModel]
+
+    var id: String { runID }
+}
+
+struct BuilderActionModel: Identifiable, Equatable {
+    let actionID: String
+    let kind: String
+    let title: String
+    let details: String
+    let files: [String]
+    let createdAt: String
+
+    var id: String { actionID }
+}
+
+struct ReviewAssertionModel: Identifiable, Equatable {
+    let assertionID: String
+    let label: String
+    let status: String
+    let detail: String
+
+    var id: String { assertionID }
+}
+
+struct ReviewCaseModel: Identifiable, Equatable {
+    let caseID: String
+    let title: String
+    let candidateScore: Double?
+    let baselineScore: Double?
+    let regression: Bool
+    let flaky: Bool
+    let candidateOutput: String
+    let baselineOutput: String
+    let diffPreview: String
+    let hardFailReasons: [String]
+    let assertions: [ReviewAssertionModel]
+    let likelyChangedFiles: [String]
+
+    var id: String { caseID }
+}
+
+struct ReviewSummaryModel: Identifiable, Equatable {
+    let reviewID: String
+    let suiteID: String
+    let suiteName: String
+    let createdAt: String
+    let revisionID: String
+    let scoreDelta: Double?
+    let passRateDelta: Double?
+    let cases: [ReviewCaseModel]
+
+    var id: String { reviewID }
+}
+
+struct DecisionRecordModel: Identifiable, Equatable {
+    let decisionID: String
+    let status: String
+    let summary: String
+    let rationale: String
+    let createdAt: String
+
+    var id: String { decisionID }
 }
 
 struct BenchmarkHistoryEntry: Identifiable, Equatable {
@@ -534,7 +666,11 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var draftMessage: String = ""
     @Published var prompts: [PromptSummaryModel] = []
     @Published var selectedPrompt: String?
-    @Published var selectedWorkspaceMode: PromptWorkspaceMode = .overview
+    @Published var selectedSuiteID: String?
+    @Published var selectedScenarioCaseID: String?
+    @Published var selectedReviewID: String?
+    @Published var selectedReviewCaseID: String?
+    @Published var selectedWorkspaceMode: PromptWorkspaceMode = .studio
     @Published var currentPromptName: String = ""
     @Published var currentPromptDescription: String = ""
     @Published var promptRootPath: String = ""
@@ -566,6 +702,16 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var benchmarkHistory: [BenchmarkHistoryEntry] = []
     @Published var benchmarkTrend: [BenchmarkTrendPoint] = []
     @Published var promptSaveNotice: String?
+    @Published var scenarioSuites: [ScenarioSuiteModel] = []
+    @Published var scenarioDraft: ScenarioSuiteModel?
+    @Published var builderActions: [BuilderActionModel] = []
+    @Published var reviews: [ReviewSummaryModel] = []
+    @Published var decisions: [DecisionRecordModel] = []
+    @Published var latestPlaygroundRun: PlaygroundRunModel?
+    @Published var playgroundInputJSON: String = "{\n  \"customer_name\": \"Avery\",\n  \"customer_issue\": \"Wants a refund for an unopened grinder purchased 18 days ago.\",\n  \"goal\": \"Confirm eligibility and explain the next step.\",\n  \"tone\": \"warm and clear\",\n  \"policy_snippet\": \"Refunds are available within 30 days for unused items with proof of purchase.\"\n}"
+    @Published var playgroundContext: String = ""
+    @Published var playgroundSampleCount: Int = 1
+    @Published var scenarioNotice: String?
 
     private var helper: PromptForgeHelperClient?
     private var engineRoot: String?
@@ -607,6 +753,34 @@ final class PromptForgeAppModel: ObservableObject {
 
     var recentTranscript: [TranscriptEntry] {
         Array(transcript.suffix(4))
+    }
+
+    var selectedSuite: ScenarioSuiteModel? {
+        guard let selectedSuiteID else { return scenarioSuites.first }
+        return scenarioSuites.first(where: { $0.suiteID == selectedSuiteID }) ?? scenarioSuites.first
+    }
+
+    var activeScenarioSuite: ScenarioSuiteModel? {
+        scenarioDraft ?? selectedSuite
+    }
+
+    var selectedScenarioCase: ScenarioCaseModel? {
+        guard let suite = activeScenarioSuite else { return nil }
+        guard let selectedScenarioCaseID else { return suite.cases.first }
+        return suite.cases.first(where: { $0.caseID == selectedScenarioCaseID }) ?? suite.cases.first
+    }
+
+    var latestReview: ReviewSummaryModel? {
+        if let selectedReviewID {
+            return reviews.first(where: { $0.reviewID == selectedReviewID }) ?? reviews.last
+        }
+        return reviews.last
+    }
+
+    var selectedReviewCase: ReviewCaseModel? {
+        guard let review = latestReview else { return nil }
+        guard let selectedReviewCaseID else { return review.cases.first }
+        return review.cases.first(where: { $0.caseID == selectedReviewCaseID }) ?? review.cases.first
     }
 
     func chooseProjectFolder() {
@@ -656,12 +830,41 @@ final class PromptForgeAppModel: ObservableObject {
         submitText("/new draft-\(Int(Date().timeIntervalSince1970))")
     }
 
-    func showOverview() {
-        selectedWorkspaceMode = .overview
+    func createScenarioShortcut() {
+        Task {
+            guard let helper, let prompt = selectedPrompt else { return }
+            isBusy = true
+            defer { isBusy = false }
+            do {
+                let suiteID = "suite-\(Int(Date().timeIntervalSince1970))"
+                _ = try await helper.send(
+                    method: "scenarios.create",
+                    params: [
+                        "prompt": prompt,
+                        "suite_id": suiteID,
+                        "name": "New Suite",
+                        "description": "New scenario suite created from the workspace.",
+                    ]
+                )
+                try await refreshScenarioSuites()
+                selectSuite(suiteID)
+                selectedWorkspaceMode = .tests
+            } catch {
+                appendTranscript(.warning, "Scenarios", error.localizedDescription)
+            }
+        }
     }
 
-    func showEditor() {
-        selectedWorkspaceMode = .editor
+    func showStudio() {
+        selectedWorkspaceMode = .studio
+    }
+
+    func showTests() {
+        selectedWorkspaceMode = .tests
+    }
+
+    func showReview() {
+        selectedWorkspaceMode = .review
     }
 
     func savePromptWorkspace() {
@@ -728,7 +931,7 @@ final class PromptForgeAppModel: ObservableObject {
             UserDefaults.standard.set(path, forKey: "PromptForgeProjectPath")
             UserDefaults.standard.set(resolvedEngineRoot, forKey: "PromptForgeEngineRoot")
             projectPath = path
-            selectedWorkspaceMode = .overview
+            selectedWorkspaceMode = .studio
             transcript.removeAll()
             appendTranscript(.system, "Project", "Opened \(path)")
             _ = try await helper?.send(method: "project.open") ?? [:]
@@ -802,7 +1005,12 @@ final class PromptForgeAppModel: ObservableObject {
             applyPromptPayload(promptResult)
             let insightResult = try await helper.send(method: "insights.latest", params: ["prompt": prompt])
             applyInsightsPayload(insightResult)
+            try await refreshScenarioSuites()
+            try await refreshReviews()
+            try await refreshBuilderActions()
+            try await refreshDecisions()
             try await refreshStatus()
+            scenarioNotice = nil
             if announce {
                 appendTranscript(.system, "Prompt", "Opened prompt \(prompt)")
             }
@@ -1147,7 +1355,7 @@ final class PromptForgeAppModel: ObservableObject {
             )
             try await refreshPrompts()
             await openPrompt(name, announce: true)
-            selectedWorkspaceMode = .editor
+            selectedWorkspaceMode = .studio
         } catch {
             appendTranscript(.warning, "Create prompt", error.localizedDescription)
         }
@@ -1164,7 +1372,7 @@ final class PromptForgeAppModel: ObservableObject {
             )
             try await refreshPrompts()
             await openPrompt(target, announce: true)
-            selectedWorkspaceMode = .editor
+            selectedWorkspaceMode = .studio
         } catch {
             appendTranscript(.warning, "Clone prompt", error.localizedDescription)
         }
@@ -1328,8 +1536,13 @@ final class PromptForgeAppModel: ObservableObject {
                     "preferred_judge_provider": settingsDraft.judgeProvider,
                     "preferred_generation_model": settingsDraft.generationModel,
                     "preferred_judge_model": settingsDraft.judgeModel,
+                    "preferred_agent_model": settingsDraft.agentModel,
                     "quick_benchmark_dataset": settingsDraft.quickBenchmarkDataset,
                     "full_evaluation_dataset": settingsDraft.fullEvaluationDataset,
+                    "quick_benchmark_repeats": settingsDraft.quickBenchmarkRepeats,
+                    "full_evaluation_repeats": settingsDraft.fullEvaluationRepeats,
+                    "builder_permission_mode": settingsDraft.builderPermissionMode,
+                    "builder_research_policy": settingsDraft.builderResearchPolicy,
                 ]
             )
             applySettingsPayload(payload)
@@ -1370,6 +1583,14 @@ final class PromptForgeAppModel: ObservableObject {
                     "purpose": promptDraft.purpose,
                     "expected_behavior": promptDraft.expectedBehavior,
                     "success_criteria": promptDraft.successCriteria,
+                    "baseline_prompt_ref": promptDraft.baselinePromptRef,
+                    "primary_scenario_suites": promptDraft.primaryScenarioSuites,
+                    "owner": promptDraft.owner,
+                    "audience": promptDraft.audience,
+                    "release_notes": promptDraft.releaseNotes,
+                    "builder_agent_model": promptDraft.builderAgentModel,
+                    "builder_permission_mode": promptDraft.builderPermissionMode,
+                    "research_policy": promptDraft.researchPolicy,
                 ]
             )
             applyPromptPayload(result)
@@ -1392,8 +1613,13 @@ final class PromptForgeAppModel: ObservableObject {
                 judgeProvider: settingsPayload["preferred_judge_provider"] as? String ?? settingsDraft.provider,
                 generationModel: settingsPayload["preferred_generation_model"] as? String ?? "gpt-5.4",
                 judgeModel: settingsPayload["preferred_judge_model"] as? String ?? "gpt-5-mini",
+                agentModel: settingsPayload["preferred_agent_model"] as? String ?? "gpt-5-mini",
                 quickBenchmarkDataset: settingsPayload["quick_benchmark_dataset"] as? String ?? "datasets/core.jsonl",
-                fullEvaluationDataset: settingsPayload["full_evaluation_dataset"] as? String ?? "datasets/core.jsonl"
+                fullEvaluationDataset: settingsPayload["full_evaluation_dataset"] as? String ?? "datasets/core.jsonl",
+                quickBenchmarkRepeats: settingsPayload["quick_benchmark_repeats"] as? Int ?? 1,
+                fullEvaluationRepeats: settingsPayload["full_evaluation_repeats"] as? Int ?? 1,
+                builderPermissionMode: settingsPayload["builder_permission_mode"] as? String ?? "proposal_only",
+                builderResearchPolicy: settingsPayload["builder_research_policy"] as? String ?? "prompt_only"
             )
         }
         if let authPayload = payload["auth"] as? [String: Any] {
@@ -1523,6 +1749,368 @@ final class PromptForgeAppModel: ObservableObject {
         }
     }
 
+    private func refreshScenarioSuites() async throws {
+        guard let helper, let prompt = selectedPrompt else {
+            scenarioSuites = []
+            scenarioDraft = nil
+            selectedSuiteID = nil
+            selectedScenarioCaseID = nil
+            return
+        }
+        let payload = try await helper.send(method: "scenarios.list", params: ["prompt": prompt])
+        let suitePayloads = payload["suites"] as? [[String: Any]] ?? []
+        scenarioSuites = suitePayloads.compactMap(parseSuite(_:))
+        let preferredSuiteID = selectedSuiteID ?? promptDraft.primaryScenarioSuites.first
+        if let preferredSuiteID, scenarioSuites.contains(where: { $0.suiteID == preferredSuiteID }) {
+            selectSuite(preferredSuiteID)
+        } else {
+            selectSuite(scenarioSuites.first?.suiteID)
+        }
+    }
+
+    private func refreshBuilderActions() async throws {
+        guard let helper, let prompt = selectedPrompt else {
+            builderActions = []
+            return
+        }
+        let payload = try await helper.send(method: "builder.actions", params: ["prompt": prompt])
+        let actionPayloads = payload["actions"] as? [[String: Any]] ?? []
+        builderActions = actionPayloads.compactMap(parseBuilderAction(_:))
+    }
+
+    private func refreshReviews() async throws {
+        guard let helper, let prompt = selectedPrompt else {
+            reviews = []
+            selectedReviewID = nil
+            return
+        }
+        let payload = try await helper.send(method: "review.latest", params: ["prompt": prompt])
+        let reviewPayloads = payload["reviews"] as? [[String: Any]] ?? []
+        reviews = reviewPayloads.compactMap(parseReview(_:))
+        if selectedReviewID == nil {
+            selectedReviewID = reviews.last?.reviewID
+        }
+        if selectedReviewCaseID == nil {
+            selectedReviewCaseID = reviews.last?.cases.first?.caseID
+        }
+    }
+
+    private func refreshDecisions() async throws {
+        guard let helper, let prompt = selectedPrompt else {
+            decisions = []
+            return
+        }
+        let payload = try await helper.send(method: "decisions.list", params: ["prompt": prompt])
+        let decisionPayloads = payload["decisions"] as? [[String: Any]] ?? []
+        decisions = decisionPayloads.compactMap(parseDecision(_:))
+    }
+
+    func runPlayground() {
+        Task {
+            await triggerPlayground()
+        }
+    }
+
+    func selectSuite(_ suiteID: String?) {
+        selectedSuiteID = suiteID
+        scenarioDraft = scenarioSuites.first(where: { $0.suiteID == suiteID }) ?? scenarioSuites.first
+        selectedScenarioCaseID = scenarioDraft?.cases.first?.caseID
+    }
+
+    func createScenarioCase() {
+        guard var suite = scenarioDraft ?? selectedSuite else { return }
+        let caseID = "case-\(Int(Date().timeIntervalSince1970))"
+        let newCase = ScenarioCaseModel(
+            caseID: caseID,
+            title: "New Case",
+            inputJSON: "{\n  \"input\": \"Describe the scenario here\"\n}",
+            contextText: "",
+            tags: [],
+            notes: "",
+            assertions: []
+        )
+        suite.cases.append(newCase)
+        scenarioDraft = suite
+        selectedScenarioCaseID = caseID
+        scenarioNotice = "Added a new scenario case."
+    }
+
+    func duplicateSelectedScenarioCase() {
+        guard var suite = scenarioDraft ?? selectedSuite, let selectedScenarioCase else { return }
+        let duplicateID = "\(selectedScenarioCase.caseID)-copy-\(Int(Date().timeIntervalSince1970))"
+        var duplicate = selectedScenarioCase
+        duplicate.title = selectedScenarioCase.title.isEmpty ? "Copied Case" : "\(selectedScenarioCase.title) Copy"
+        let duplicatedCase = ScenarioCaseModel(
+            caseID: duplicateID,
+            title: duplicate.title,
+            inputJSON: duplicate.inputJSON,
+            contextText: duplicate.contextText,
+            tags: duplicate.tags,
+            notes: duplicate.notes,
+            assertions: duplicate.assertions.enumerated().map { index, assertion in
+                ScenarioAssertionModel(
+                    assertionID: "\(duplicateID)-assertion-\(index)",
+                    label: assertion.label,
+                    kind: assertion.kind,
+                    expectedText: assertion.expectedText,
+                    threshold: assertion.threshold,
+                    trait: assertion.trait,
+                    severity: assertion.severity
+                )
+            }
+        )
+        suite.cases.append(duplicatedCase)
+        scenarioDraft = suite
+        selectedScenarioCaseID = duplicateID
+        scenarioNotice = "Duplicated scenario case."
+    }
+
+    func deleteSelectedScenarioCase() {
+        guard var suite = scenarioDraft ?? selectedSuite, let selectedScenarioCaseID else { return }
+        suite.cases.removeAll { $0.caseID == selectedScenarioCaseID }
+        scenarioDraft = suite
+        self.selectedScenarioCaseID = suite.cases.first?.caseID
+        scenarioNotice = "Removed scenario case."
+    }
+
+    func addAssertionToSelectedCase() {
+        guard var suite = scenarioDraft ?? selectedSuite, let selectedScenarioCaseID else { return }
+        guard let caseIndex = suite.cases.firstIndex(where: { $0.caseID == selectedScenarioCaseID }) else { return }
+        let assertionID = "\(selectedScenarioCaseID)-assertion-\(suite.cases[caseIndex].assertions.count + 1)"
+        suite.cases[caseIndex].assertions.append(
+            ScenarioAssertionModel(
+                assertionID: assertionID,
+                label: "New assertion",
+                kind: "required_string",
+                expectedText: "",
+                threshold: nil,
+                trait: "",
+                severity: "fail"
+            )
+        )
+        scenarioDraft = suite
+        scenarioNotice = "Added assertion."
+    }
+
+    func promotePlaygroundInputToScenario() {
+        guard var suite = scenarioDraft ?? selectedSuite else {
+            scenarioNotice = "Create or select a scenario suite first."
+            return
+        }
+        guard parseJSONObject(from: playgroundInputJSON) != nil else {
+            appendTranscript(.warning, "Scenarios", "Playground input must be valid JSON before promoting it to a case.")
+            return
+        }
+        let caseID = "playground-\(Int(Date().timeIntervalSince1970))"
+        let newCase = ScenarioCaseModel(
+            caseID: caseID,
+            title: "Playground Capture",
+            inputJSON: playgroundInputJSON,
+            contextText: playgroundContext,
+            tags: ["playground"],
+            notes: "Created from the Studio playground.",
+            assertions: []
+        )
+        suite.cases.append(newCase)
+        scenarioDraft = suite
+        selectedSuiteID = suite.suiteID
+        selectedScenarioCaseID = caseID
+        selectedWorkspaceMode = .tests
+        scenarioNotice = "Promoted the current playground input into the selected suite."
+    }
+
+    func saveScenarioSuite() {
+        Task {
+            await persistScenarioSuite()
+        }
+    }
+
+    func runScenarioReview() {
+        Task {
+            await triggerScenarioReview()
+        }
+    }
+
+    func recordIterateDecision() {
+        Task {
+            await recordDecision(status: "iterate", summary: "Continue iterating after review.")
+        }
+    }
+
+    func promoteCurrentCandidate() {
+        Task {
+            await promoteDecision()
+        }
+    }
+
+    private func triggerPlayground() async {
+        guard let helper, let prompt = selectedPrompt else {
+            appendTranscript(.warning, "Playground", "Choose a prompt first.")
+            return
+        }
+        guard let inputPayload = parseJSONObject(from: playgroundInputJSON) else {
+            appendTranscript(.warning, "Playground", "Playground input must be valid JSON.")
+            return
+        }
+        guard await persistPromptWorkspace(showNoChangeNotice: false) else {
+            return
+        }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let payload = try await helper.send(
+                method: "playground.run",
+                params: [
+                    "prompt": prompt,
+                    "input_payload": inputPayload,
+                    "context": playgroundContext,
+                    "samples": playgroundSampleCount,
+                    "compare_baseline": true,
+                ]
+            )
+            latestPlaygroundRun = parsePlaygroundRun(payload["playground"] as? [String: Any] ?? [:])
+            try? await refreshBuilderActions()
+            scenarioNotice = nil
+        } catch {
+            appendTranscript(.warning, "Playground", error.localizedDescription)
+        }
+    }
+
+    private func triggerScenarioReview() async {
+        guard let helper, let prompt = selectedPrompt, let suiteID = selectedSuite?.suiteID else {
+            appendTranscript(.warning, "Review", "Choose a prompt and scenario suite first.")
+            return
+        }
+        guard await persistPromptWorkspace(showNoChangeNotice: false) else {
+            return
+        }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let payload = try await helper.send(
+                method: "review.run_suite",
+                params: ["prompt": prompt, "suite_id": suiteID]
+            )
+            if let reviewPayload = payload["review"] as? [String: Any], let review = parseReview(reviewPayload) {
+                reviews.append(review)
+                selectedReviewID = review.reviewID
+                selectedReviewCaseID = review.cases.first?.caseID
+                selectedWorkspaceMode = .review
+            }
+            try? await refreshBuilderActions()
+            try? await refreshDecisions()
+        } catch {
+            appendTranscript(.warning, "Review", error.localizedDescription)
+        }
+    }
+
+    private func recordDecision(status: String, summary: String) async {
+        guard let helper, let prompt = selectedPrompt else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            _ = try await helper.send(
+                method: "decisions.record",
+                params: [
+                    "prompt": prompt,
+                    "status": status,
+                    "summary": summary,
+                    "review_id": latestReview?.reviewID as Any,
+                    "suite_id": latestReview?.suiteID as Any,
+                ]
+            )
+            try? await refreshDecisions()
+            try? await refreshBuilderActions()
+        } catch {
+            appendTranscript(.warning, "Decision", error.localizedDescription)
+        }
+    }
+
+    private func promoteDecision() async {
+        guard let helper, let prompt = selectedPrompt else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            _ = try await helper.send(
+                method: "decisions.promote",
+                params: [
+                    "prompt": prompt,
+                    "summary": "Promote current candidate to baseline.",
+                    "review_id": latestReview?.reviewID as Any,
+                    "suite_id": latestReview?.suiteID as Any,
+                ]
+            )
+            try? await refreshDecisions()
+            try? await refreshBuilderActions()
+            try? await refreshStatus()
+        } catch {
+            appendTranscript(.warning, "Promote", error.localizedDescription)
+        }
+    }
+
+    private func persistScenarioSuite() async {
+        guard let helper, var suite = scenarioDraft ?? selectedSuite else {
+            appendTranscript(.warning, "Scenarios", "Choose a scenario suite before saving.")
+            return
+        }
+        guard let prompt = selectedPrompt else {
+            appendTranscript(.warning, "Scenarios", "Choose a prompt before saving a suite.")
+            return
+        }
+        let parsedCases = suite.cases.compactMap(buildScenarioCasePayload(_:))
+        guard parsedCases.count == suite.cases.count else {
+            appendTranscript(.warning, "Scenarios", "Every scenario case must contain valid JSON input before saving.")
+            return
+        }
+        if !suite.linkedPrompts.contains(prompt) {
+            suite.linkedPrompts.append(prompt)
+        }
+        isBusy = true
+        scenarioNotice = nil
+        defer { isBusy = false }
+        do {
+            let payload = try await helper.send(
+                method: "scenarios.save",
+                params: [
+                    "suite": [
+                        "format_version": 1,
+                        "suite_id": suite.suiteID,
+                        "name": suite.name,
+                        "description": suite.description,
+                        "linked_prompts": suite.linkedPrompts,
+                        "cases": parsedCases,
+                        "created_at": suite.createdAt,
+                        "updated_at": suite.updatedAt,
+                    ]
+                ]
+            )
+            if let savedSuite = parseSuite(payload["suite"] as? [String: Any] ?? [:]) {
+                if let index = scenarioSuites.firstIndex(where: { $0.suiteID == savedSuite.suiteID }) {
+                    scenarioSuites[index] = savedSuite
+                } else {
+                    scenarioSuites.append(savedSuite)
+                    scenarioSuites.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                }
+                scenarioDraft = savedSuite
+                selectedSuiteID = savedSuite.suiteID
+                if !savedSuite.cases.isEmpty {
+                    if let selectedScenarioCaseID, savedSuite.cases.contains(where: { $0.caseID == selectedScenarioCaseID }) {
+                        self.selectedScenarioCaseID = selectedScenarioCaseID
+                    } else {
+                        self.selectedScenarioCaseID = savedSuite.cases.first?.caseID
+                    }
+                } else {
+                    selectedScenarioCaseID = nil
+                }
+            }
+            scenarioNotice = "Scenario suite saved."
+            appendTranscript(.result, "Scenarios", "Saved suite \(suite.name).")
+        } catch {
+            scenarioNotice = error.localizedDescription
+            appendTranscript(.warning, "Scenarios", error.localizedDescription)
+        }
+    }
+
     private func applyPromptPayload(_ result: [String: Any]) {
         guard let payload = result["prompt"] as? [String: Any] else { return }
         selectedPrompt = payload["version"] as? String ?? selectedPrompt
@@ -1535,6 +2123,14 @@ final class PromptForgeAppModel: ObservableObject {
             purpose: payload["purpose"] as? String ?? "",
             expectedBehavior: payload["expected_behavior"] as? String ?? "",
             successCriteria: payload["success_criteria"] as? String ?? "",
+            baselinePromptRef: payload["baseline_prompt_ref"] as? String ?? "",
+            primaryScenarioSuites: payload["primary_scenario_suites"] as? [String] ?? [],
+            owner: payload["owner"] as? String ?? "",
+            audience: payload["audience"] as? String ?? "",
+            releaseNotes: payload["release_notes"] as? String ?? "",
+            builderAgentModel: payload["builder_agent_model"] as? String ?? "gpt-5-mini",
+            builderPermissionMode: payload["builder_permission_mode"] as? String ?? "proposal_only",
+            researchPolicy: payload["research_policy"] as? String ?? "prompt_only",
             systemPrompt: systemPrompt,
             userTemplate: userTemplate
         )
@@ -1618,6 +2214,183 @@ final class PromptForgeAppModel: ObservableObject {
                 summary: item["summary"] as? String ?? "--"
             )
         }
+    }
+
+    private func parseSuite(_ payload: [String: Any]) -> ScenarioSuiteModel? {
+        guard let suiteID = payload["suite_id"] as? String else { return nil }
+        let casePayloads = payload["cases"] as? [[String: Any]] ?? []
+        let cases = casePayloads.compactMap(parseScenarioCase(_:))
+        return ScenarioSuiteModel(
+            suiteID: suiteID,
+            name: payload["name"] as? String ?? suiteID,
+            description: payload["description"] as? String ?? "",
+            linkedPrompts: payload["linked_prompts"] as? [String] ?? [],
+            cases: cases,
+            createdAt: payload["created_at"] as? String ?? "",
+            updatedAt: payload["updated_at"] as? String ?? ""
+        )
+    }
+
+    private func parseScenarioCase(_ payload: [String: Any]) -> ScenarioCaseModel? {
+        guard let caseID = payload["case_id"] as? String else { return nil }
+        let inputObject = payload["input"] as? [String: Any] ?? [:]
+        let assertions = (payload["assertions"] as? [[String: Any]] ?? []).compactMap(parseScenarioAssertion(_:))
+        let inputData = try? JSONSerialization.data(withJSONObject: inputObject, options: [.prettyPrinted, .sortedKeys])
+        let inputJSON = inputData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return ScenarioCaseModel(
+            caseID: caseID,
+            title: payload["title"] as? String ?? caseID,
+            inputJSON: inputJSON,
+            contextText: String(describing: payload["context"] ?? ""),
+            tags: payload["tags"] as? [String] ?? [],
+            notes: payload["notes"] as? String ?? "",
+            assertions: assertions
+        )
+    }
+
+    private func parseScenarioAssertion(_ payload: [String: Any]) -> ScenarioAssertionModel? {
+        guard let assertionID = payload["assertion_id"] as? String else { return nil }
+        return ScenarioAssertionModel(
+            assertionID: assertionID,
+            label: payload["label"] as? String ?? assertionID,
+            kind: payload["kind"] as? String ?? "required_string",
+            expectedText: payload["expected_text"] as? String ?? "",
+            threshold: payload["threshold"] as? Double,
+            trait: payload["trait"] as? String ?? "",
+            severity: payload["severity"] as? String ?? "fail"
+        )
+    }
+
+    private func parseBuilderAction(_ payload: [String: Any]) -> BuilderActionModel? {
+        guard let actionID = payload["action_id"] as? String else { return nil }
+        return BuilderActionModel(
+            actionID: actionID,
+            kind: payload["kind"] as? String ?? "chat",
+            title: payload["title"] as? String ?? "Action",
+            details: payload["details"] as? String ?? "",
+            files: payload["files"] as? [String] ?? [],
+            createdAt: payload["created_at"] as? String ?? ""
+        )
+    }
+
+    private func parsePlaygroundRun(_ payload: [String: Any]) -> PlaygroundRunModel? {
+        guard let runID = payload["run_id"] as? String else { return nil }
+        let candidateSamples = (payload["candidate_samples"] as? [[String: Any]] ?? []).compactMap(parsePlaygroundSample(_:))
+        let baselineSamples = (payload["baseline_samples"] as? [[String: Any]] ?? []).compactMap(parsePlaygroundSample(_:))
+        let inputObject = payload["input_payload"] as? [String: Any] ?? [:]
+        let inputData = try? JSONSerialization.data(withJSONObject: inputObject, options: [.prettyPrinted, .sortedKeys])
+        return PlaygroundRunModel(
+            runID: runID,
+            createdAt: payload["created_at"] as? String ?? "",
+            inputJSON: inputData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}",
+            contextText: String(describing: payload["context"] ?? ""),
+            candidateSamples: candidateSamples,
+            baselineSamples: baselineSamples
+        )
+    }
+
+    private func parsePlaygroundSample(_ payload: [String: Any]) -> PlaygroundSampleModel? {
+        guard let sampleID = payload["sample_id"] as? String else { return nil }
+        let usage = payload["usage"] as? [String: Any] ?? [:]
+        let totalTokens = usage["total_tokens"] as? Int ?? 0
+        return PlaygroundSampleModel(
+            sampleID: sampleID,
+            outputText: payload["output_text"] as? String ?? "",
+            latencyMS: payload["latency_ms"] as? Int ?? 0,
+            totalTokens: totalTokens
+        )
+    }
+
+    private func parseReview(_ payload: [String: Any]) -> ReviewSummaryModel? {
+        guard let reviewID = payload["review_id"] as? String else { return nil }
+        let cases = (payload["cases"] as? [[String: Any]] ?? []).compactMap(parseReviewCase(_:))
+        let diff = payload["diff"] as? [String: Any] ?? [:]
+        return ReviewSummaryModel(
+            reviewID: reviewID,
+            suiteID: payload["suite_id"] as? String ?? "",
+            suiteName: payload["suite_name"] as? String ?? "Review",
+            createdAt: payload["created_at"] as? String ?? "",
+            revisionID: payload["revision_id"] as? String ?? "",
+            scoreDelta: diff["mean_score_delta"] as? Double,
+            passRateDelta: diff["pass_rate_delta"] as? Double,
+            cases: cases
+        )
+    }
+
+    private func parseReviewCase(_ payload: [String: Any]) -> ReviewCaseModel? {
+        guard let caseID = payload["case_id"] as? String else { return nil }
+        let assertions = (payload["assertions"] as? [[String: Any]] ?? []).compactMap(parseReviewAssertion(_:))
+        return ReviewCaseModel(
+            caseID: caseID,
+            title: payload["title"] as? String ?? caseID,
+            candidateScore: payload["candidate_score"] as? Double,
+            baselineScore: payload["baseline_score"] as? Double,
+            regression: payload["regression"] as? Bool ?? false,
+            flaky: payload["flaky"] as? Bool ?? false,
+            candidateOutput: payload["candidate_output"] as? String ?? "",
+            baselineOutput: payload["baseline_output"] as? String ?? "",
+            diffPreview: payload["diff_preview"] as? String ?? "",
+            hardFailReasons: payload["hard_fail_reasons"] as? [String] ?? [],
+            assertions: assertions,
+            likelyChangedFiles: payload["likely_changed_files"] as? [String] ?? []
+        )
+    }
+
+    private func parseReviewAssertion(_ payload: [String: Any]) -> ReviewAssertionModel? {
+        guard let assertionID = payload["assertion_id"] as? String else { return nil }
+        return ReviewAssertionModel(
+            assertionID: assertionID,
+            label: payload["label"] as? String ?? assertionID,
+            status: payload["status"] as? String ?? "passed",
+            detail: payload["detail"] as? String ?? ""
+        )
+    }
+
+    private func parseDecision(_ payload: [String: Any]) -> DecisionRecordModel? {
+        guard let decisionID = payload["decision_id"] as? String else { return nil }
+        return DecisionRecordModel(
+            decisionID: decisionID,
+            status: payload["status"] as? String ?? "iterate",
+            summary: payload["summary"] as? String ?? "",
+            rationale: payload["rationale"] as? String ?? "",
+            createdAt: payload["created_at"] as? String ?? ""
+        )
+    }
+
+    private func parseJSONObject(from text: String) -> [String: Any]? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return object
+    }
+
+    private func buildScenarioCasePayload(_ scenarioCase: ScenarioCaseModel) -> [String: Any]? {
+        guard let input = parseJSONObject(from: scenarioCase.inputJSON) else { return nil }
+        return [
+            "case_id": scenarioCase.caseID,
+            "title": scenarioCase.title,
+            "input": input,
+            "context": scenarioCase.contextText.isEmpty ? NSNull() : scenarioCase.contextText,
+            "assertions": scenarioCase.assertions.map { assertion in
+                var payload: [String: Any] = [
+                    "assertion_id": assertion.assertionID,
+                    "label": assertion.label,
+                    "kind": assertion.kind,
+                    "severity": assertion.severity,
+                ]
+                if !assertion.expectedText.isEmpty {
+                    payload["expected_text"] = assertion.expectedText
+                }
+                if let threshold = assertion.threshold {
+                    payload["threshold"] = threshold
+                }
+                if !assertion.trait.isEmpty {
+                    payload["trait"] = assertion.trait
+                }
+                return payload
+            },
+            "tags": scenarioCase.tags,
+            "notes": scenarioCase.notes,
+        ]
     }
 
     private func appendTranscript(_ role: TranscriptRole, _ title: String, _ body: String) {

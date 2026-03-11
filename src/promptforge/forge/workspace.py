@@ -9,12 +9,22 @@ from pydantic import BaseModel, Field
 
 from promptforge.core.config import settings
 from promptforge.core.models import RunConfig, ScoringConfig
-from promptforge.forge.models import AgentChatResult, AgentEditResult, PreparedAgentEdit
+from promptforge.forge.models import (
+    AgentChatResult,
+    AgentEditResult,
+    BuilderAction,
+    DecisionRecord,
+    PlaygroundRun,
+    PreparedAgentEdit,
+    ReviewSummary,
+)
 from promptforge.forge.service import ForgeSession
 from promptforge.project import PromptForgeProject
 from promptforge.prompts.brief import PromptBrief, ensure_prompt_brief, save_prompt_brief
 from promptforge.prompts.loader import load_prompt_pack
 from promptforge.runtime.gateway import build_gateway
+from promptforge.scenarios.models import ScenarioSuite
+from promptforge.scenarios.service import ScenarioSuiteService
 
 
 class PromptSummary(BaseModel):
@@ -35,6 +45,14 @@ class PromptView(BaseModel):
     purpose: str = ""
     expected_behavior: str = ""
     success_criteria: str = ""
+    baseline_prompt_ref: str = ""
+    primary_scenario_suites: list[str] = Field(default_factory=list)
+    owner: str = ""
+    audience: str = ""
+    release_notes: str = ""
+    builder_agent_model: str = "gpt-5-mini"
+    builder_permission_mode: str = "proposal_only"
+    research_policy: str = "prompt_only"
     files: list[str] = Field(default_factory=list)
     session_id: str | None = None
 
@@ -72,13 +90,17 @@ class ForgeWorkspaceService:
         self.full_repeats = full_repeats
         self._sessions: dict[str, ForgeSession] = {}
         self.state = self._load_state()
+        self.scenarios = ScenarioSuiteService(root=Path.cwd() / settings.scenario_dir)
         self.project.update_defaults(
             quick_benchmark_dataset=bench_dataset_path or dataset_path,
             full_evaluation_dataset=dataset_path,
+            quick_benchmark_repeats=bench_repeats,
+            full_evaluation_repeats=full_repeats,
             preferred_provider=provider,
             preferred_judge_provider=judge_provider,
             preferred_generation_model=model,
             preferred_judge_model=scoring_config.judge_model,
+            preferred_agent_model=agent_model,
         )
 
     def list_prompts(self) -> list[PromptSummary]:
@@ -183,6 +205,14 @@ class ForgeWorkspaceService:
                         purpose=brief.purpose,
                         expected_behavior=brief.expected_behavior,
                         success_criteria=brief.success_criteria,
+                        baseline_prompt_ref=brief.baseline_prompt_ref,
+                        primary_scenario_suites=brief.primary_scenario_suites,
+                        owner=brief.owner,
+                        audience=brief.audience,
+                        release_notes=brief.release_notes,
+                        builder_agent_model=brief.builder_agent_model,
+                        builder_permission_mode=brief.builder_permission_mode,
+                        research_policy=brief.research_policy,
                         files=self._prompt_files(prompt_pack.root),
                         session_id=session_id,
                     )
@@ -202,6 +232,14 @@ class ForgeWorkspaceService:
             purpose=brief.purpose,
             expected_behavior=brief.expected_behavior,
             success_criteria=brief.success_criteria,
+            baseline_prompt_ref=brief.baseline_prompt_ref,
+            primary_scenario_suites=brief.primary_scenario_suites,
+            owner=brief.owner,
+            audience=brief.audience,
+            release_notes=brief.release_notes,
+            builder_agent_model=brief.builder_agent_model,
+            builder_permission_mode=brief.builder_permission_mode,
+            research_policy=brief.research_policy,
             files=self._prompt_files(prompt_pack.root),
             session_id=None,
         )
@@ -297,6 +335,14 @@ class ForgeWorkspaceService:
         purpose: str,
         expected_behavior: str,
         success_criteria: str,
+        baseline_prompt_ref: str = "",
+        primary_scenario_suites: list[str] | None = None,
+        owner: str = "",
+        audience: str = "",
+        release_notes: str = "",
+        builder_agent_model: str = "gpt-5-mini",
+        builder_permission_mode: str = "proposal_only",
+        research_policy: str = "prompt_only",
     ):
         session = await self.ensure_session(prompt_ref)
         self.set_active_prompt(prompt_ref)
@@ -304,6 +350,14 @@ class ForgeWorkspaceService:
             purpose=purpose.strip(),
             expected_behavior=expected_behavior.strip(),
             success_criteria=success_criteria.strip(),
+            baseline_prompt_ref=baseline_prompt_ref.strip(),
+            primary_scenario_suites=primary_scenario_suites or [],
+            owner=owner.strip(),
+            audience=audience.strip(),
+            release_notes=release_notes.strip(),
+            builder_agent_model=builder_agent_model.strip() or session.manifest.agent_model,
+            builder_permission_mode=builder_permission_mode.strip() or "proposal_only",
+            research_policy=research_policy.strip() or "prompt_only",
         )
         return await session.edit_prompt_files(
             updates={
@@ -323,6 +377,121 @@ class ForgeWorkspaceService:
         session = await self.ensure_session(prompt_ref)
         self.set_active_prompt(prompt_ref)
         return await session.run_full_evaluation(note="Full evaluation from the forge workspace.")
+
+    def list_scenarios(self, *, prompt_ref: str | None = None) -> list[ScenarioSuite]:
+        if prompt_ref:
+            self.ensure_default_scenario(prompt_ref)
+        suites = self.scenarios.list_suites()
+        if not prompt_ref:
+            return suites
+        filtered = [
+            suite for suite in suites if not suite.linked_prompts or prompt_ref in suite.linked_prompts
+        ]
+        return filtered or suites
+
+    def ensure_default_scenario(self, prompt_ref: str) -> ScenarioSuite:
+        return self.scenarios.ensure_default_suite(
+            dataset_path=self.bench_dataset_path or self.dataset_path,
+            prompt_ref=prompt_ref,
+        )
+
+    def load_scenario(self, suite_id: str) -> ScenarioSuite:
+        return self.scenarios.load_suite(suite_id)
+
+    def save_scenario(self, suite: ScenarioSuite) -> Path:
+        return self.scenarios.save_suite(suite)
+
+    def create_scenario(
+        self,
+        suite_id: str,
+        *,
+        prompt_ref: str | None = None,
+        name: str | None = None,
+        description: str = "",
+    ) -> ScenarioSuite:
+        return self.scenarios.create_suite(
+            suite_id,
+            name=name,
+            description=description,
+            linked_prompts=[prompt_ref] if prompt_ref else [],
+        )
+
+    async def run_scenario_suite(self, prompt_ref: str, suite_id: str, *, repeats: int | None = None) -> ReviewSummary:
+        session = await self.ensure_session(prompt_ref)
+        suite = self.scenarios.load_suite(suite_id)
+        self.set_active_prompt(prompt_ref)
+        return await session.run_scenario_suite(suite, repeats=repeats)
+
+    async def run_playground(
+        self,
+        prompt_ref: str,
+        *,
+        input_payload: dict[str, object],
+        context: str | dict[str, object] | list[object] | None = None,
+        samples: int = 1,
+        compare_baseline: bool = True,
+    ) -> PlaygroundRun:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return await session.run_playground(
+            input_payload=input_payload,
+            context=context,
+            samples=samples,
+            compare_baseline=compare_baseline,
+        )
+
+    async def record_review_decision(
+        self,
+        prompt_ref: str,
+        *,
+        status: str,
+        summary: str,
+        rationale: str = "",
+        review_id: str | None = None,
+        suite_id: str | None = None,
+    ) -> DecisionRecord:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return session.record_decision(
+            status=status,
+            summary=summary,
+            rationale=rationale,
+            review_id=review_id,
+            suite_id=suite_id,
+        )
+
+    async def promote_to_baseline(
+        self,
+        prompt_ref: str,
+        *,
+        summary: str,
+        rationale: str = "",
+        review_id: str | None = None,
+        suite_id: str | None = None,
+    ) -> DecisionRecord:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return await session.promote_current_to_baseline(
+            summary=summary,
+            rationale=rationale,
+            review_id=review_id,
+            suite_id=suite_id,
+        )
+
+    async def list_builder_actions(self, prompt_ref: str) -> list[BuilderAction]:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return session.list_builder_actions()
+
+    async def list_reviews(self, prompt_ref: str) -> list[ReviewSummary]:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return list(session.history.reviews)
+
+    async def list_decisions(self, prompt_ref: str) -> list[DecisionRecord]:
+        session = await self.ensure_session(prompt_ref)
+        self.set_active_prompt(prompt_ref)
+        return list(session.history.decisions)
 
     async def restore_previous(self, prompt_ref: str):
         session = await self.ensure_session(prompt_ref)

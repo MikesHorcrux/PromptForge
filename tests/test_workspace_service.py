@@ -120,7 +120,10 @@ def test_workspace_service_lists_creates_and_tracks_sessions(tmp_path, monkeypat
         )
     )
     assert revision.revision_id == "r001"
-    assert revision.benchmark is not None
+    assert revision.benchmark is None
+
+    checked = asyncio.run(workspace.run_benchmark("v1"))
+    assert checked.benchmark is not None
 
     exported = asyncio.run(workspace.export_prompt("v1", "v1-exported"))
     assert exported.exists()
@@ -189,3 +192,67 @@ def test_workspace_service_stages_agent_edits_before_apply(tmp_path, monkeypatch
     result = asyncio.run(workspace.apply_prepared_edit("v1", proposal.proposal_id))
     assert result.revision is not None
     assert "Add improved guidance." in session.read_prompt_file("system")[1]
+
+
+def test_workspace_supports_scenarios_playground_and_review_decisions(tmp_path, monkeypatch) -> None:
+    prompt_root = tmp_path / "prompt_packs"
+    prompt_root.mkdir(parents=True, exist_ok=True)
+    _seed_prompt_packs(prompt_root)
+    dataset_root = tmp_path / "datasets"
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "prompt_pack_dir", prompt_root)
+    monkeypatch.setattr(settings, "dataset_dir", dataset_root)
+    monkeypatch.setattr(settings, "scenario_dir", Path("scenarios"))
+    monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
+
+    gateway = FakeForgeGateway()
+    monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: gateway)
+
+    workspace = ForgeWorkspaceService(
+        dataset_path="datasets/core.jsonl",
+        bench_dataset_path=None,
+        model="fake-model",
+        agent_model="gpt-5-mini",
+        provider="openai",
+        judge_provider="openai",
+        run_config=RunConfig(use_cache=True),
+        scoring_config=ScoringConfig(judge_model="fake-judge"),
+        bench_repeats=1,
+        full_repeats=1,
+    )
+
+    suites = workspace.list_scenarios(prompt_ref="v1")
+    assert suites
+    suite = suites[0]
+    assert suite.cases
+
+    playground = asyncio.run(
+        workspace.run_playground(
+            "v1",
+            input_payload=suite.cases[0].input,
+            context=suite.cases[0].context,
+            samples=2,
+        )
+    )
+    assert len(playground.candidate_samples) == 2
+    assert len(playground.baseline_samples) == 2
+
+    review = asyncio.run(workspace.run_scenario_suite("v1", suite.suite_id))
+    assert review.cases
+
+    decision = asyncio.run(
+        workspace.record_review_decision(
+            "v1",
+            status="iterate",
+            summary="Keep iterating after review.",
+            review_id=review.review_id,
+            suite_id=suite.suite_id,
+        )
+    )
+    assert decision.status == "iterate"
+
+    actions = asyncio.run(workspace.list_builder_actions("v1"))
+    assert actions

@@ -6,26 +6,29 @@
 
 _Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
 
-PromptForge is a macOS-first prompt engineering workbench with a local Python
-engine. The app is the main interactive surface. The CLI stays in place for
-setup, status, batch evaluation, comparison, and reporting.
+PromptForge is a macOS-first prompt IDE with a local Python engine. The app is
+the main interactive surface for co-authoring prompts with an agent, running
+scenario-style checks, and reviewing prompt changes before promotion. The CLI
+stays in place for setup, status, batch evaluation, comparison, and reporting.
 
 It is built for:
 
-- Prompt engineers comparing prompt pack revisions against a fixed dataset
+- Prompt engineers iterating on prompt packs with an agent and a reproducible local workflow
 - Operators who need a predictable local workflow and durable artifacts
-- Technical and non-technical stakeholders who need a readable report, not raw model transcripts
+- Technical and non-technical stakeholders who need a readable review, not raw model transcripts
 
 What it does:
 
 - Loads a versioned prompt pack from `prompt_packs/<version>/`
 - Keeps per-prompt intent and editing context in `prompt_packs/<version>/prompt.json`
 - Loads a JSONL evaluation dataset from `datasets/`
+- Stores scenario suites under `scenarios/` for prompt behavior checks
 - Opens a local macOS app for prompt-first, chat-driven iteration
 - Includes an in-app settings surface for providers, models, datasets, auth status, and first-run onboarding
-- Opens each prompt into a simpler prompt-first flow with an overview dashboard and a dedicated chat editor
+- Opens each prompt into `Studio`, `Tests`, and `Review` workspaces
 - Treats plain chat messages as an agent conversation for the active prompt instead of requiring slash commands for every action
-- Shows benchmark trend history and revision summaries in the macOS UI
+- Includes an in-app playground for ad hoc prompt trials and baseline comparisons
+- Tracks builder-agent actions, review decisions, and promotion records in the macOS UI
 - Uses a local helper process over a Unix socket for agent edits and benchmark calls
 - Resolves app API keys from macOS Keychain before falling back to inherited local env values
 - Runs each case through one of three provider paths: `openai`, `openrouter`, or `codex`
@@ -86,23 +89,24 @@ What the wizard does:
 - Checks `codex login status` and can launch `codex login`
 
 On macOS, `pf forge` opens `PromptForge.app` for the current project. The app
-handles prompt selection, prompt intent fields, prompt-file editing, agent chat,
-staged edit proposals, apply/discard, settings, onboarding, and benchmark
-feedback. The helper RPC exposes a live long-poll event stream through
-`events.subscribe`, and the app hydrates OpenAI/OpenRouter API keys from the
-macOS Keychain when launching the helper. Prompt opens are intentionally cheap:
-the app loads prompt files and dashboard state first, then creates a forge
-session only when the user chats, stages edits, saves into a session, or runs an
-evaluation. The CLI remains the setup, status, and batch-evaluation surface.
+handles prompt selection, prompt metadata, prompt-file editing, agent chat,
+staged edit proposals, apply/discard, playground runs, scenario-suite editing,
+review decisions, settings, onboarding, and evaluation feedback. The helper RPC
+exposes a live long-poll event stream through `events.subscribe`, and the app
+hydrates OpenAI/OpenRouter API keys from the macOS Keychain when launching the
+helper. Prompt opens are intentionally cheap: the app loads prompt files and
+workspace state first, then creates a forge session only when the user chats,
+stages edits, saves into a session, or runs an evaluation. The CLI remains the
+setup, status, and batch-evaluation surface.
 
 ## Core workflow
 
 1. Create or update a prompt pack in `prompt_packs/<version>/`, including `prompt.json`, or use `pf prompts create`.
-2. Add or update dataset cases in `datasets/*.jsonl`.
-3. Use `pf forge` to open the app and work through a prompt's overview and editor flow.
-4. Chat with the agent in plain language, then explicitly run `Run Bench` or `Full Eval` when you want evidence.
-5. Inspect `report.md`, `scores.json`, `comparison.json`, and `run.lock.json`.
-6. Keep the winning prompt pack version and repeat.
+2. Add or update dataset cases in `datasets/*.jsonl`, then bootstrap or refine scenario suites in `scenarios/*.json`.
+3. Use `pf forge` to open the app and work through `Studio`, `Tests`, and `Review`.
+4. Chat with the agent in plain language, try inputs in Playground, and save prompt workspace changes explicitly.
+5. Run `Quick Check` or `Run Suite` when you want evidence.
+6. Inspect review diffs, assertion results, and decision records before promotion.
 
 ## Key commands
 
@@ -111,7 +115,7 @@ evaluation. The CLI remains the setup, status, and batch-evaluation surface.
 | `pf setup` | Interactive onboarding for auth and defaults | First-time setup, provider changes |
 | `pf status` | Show auth, provider defaults, and active workspace info | Quick sanity check before using the forge |
 | `pf doctor` | Validate auth, model access, prompt pack, dataset, and workspace dirs | Preflight check before a run |
-| `pf forge` | Open the PromptForge macOS app for the current project | Day-to-day prompt iteration |
+| `pf forge` | Open the PromptForge macOS app for the current project | Day-to-day prompt authoring, scenario testing, and review |
 | `pf prompts list` | List the available prompt packs | Review or script multi-prompt workspaces |
 | `pf prompts create --prompt draft-v1 --from v1` | Create a new prompt pack | Start a new prompt version quickly |
 | `pf run --prompt v1 --dataset datasets/core.jsonl` | Evaluate one prompt pack | Score a single version |
@@ -131,9 +135,11 @@ pf run --prompt v1 --dataset datasets/core.jsonl --provider codex --judge-provid
 ```text
 prompt_packs/                 Versioned prompt packs, including per-prompt prompt.json intent files
 datasets/                     JSONL evaluation datasets
+scenarios/                    Scenario suites for prompt behavior checks
 src/promptforge/              CLI, runtime, scoring, providers, and setup flow
 src/promptforge/helper/       Local helper server used by the macOS app
 src/promptforge/forge/        Prompt workspace, staged edits, and revision logic
+src/promptforge/scenarios/    Scenario suite models and storage
 apps/macos/PromptForge/       SwiftUI macOS app
 tests/                        Unit and integration-style tests
 docs/                         Architecture, operations, security, ADRs, and reference docs

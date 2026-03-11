@@ -16,6 +16,7 @@ from promptforge.core.config import settings
 from promptforge.core.models import RunConfig, ScoringConfig
 from promptforge.forge.workspace import ForgeWorkspaceService
 from promptforge.project import PromptForgeProject
+from promptforge.scenarios.models import ScenarioSuite
 
 
 class HelperEventStream:
@@ -113,13 +114,13 @@ class PromptForgeHelper:
             dataset_path=metadata.full_evaluation_dataset,
             bench_dataset_path=metadata.quick_benchmark_dataset,
             model=metadata.preferred_generation_model,
-            agent_model="gpt-5-mini",
+            agent_model=metadata.preferred_agent_model,
             provider=metadata.preferred_provider,
             judge_provider=judge_provider,
             run_config=RunConfig(),
             scoring_config=ScoringConfig(judge_model=metadata.preferred_judge_model),
-            bench_repeats=1,
-            full_repeats=1,
+            bench_repeats=metadata.quick_benchmark_repeats,
+            full_repeats=metadata.full_evaluation_repeats,
         )
 
     async def handle(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -159,6 +160,10 @@ class PromptForgeHelper:
                 metadata.quick_benchmark_dataset = str(params["quick_benchmark_dataset"]).strip() or metadata.quick_benchmark_dataset
             if "full_evaluation_dataset" in params:
                 metadata.full_evaluation_dataset = str(params["full_evaluation_dataset"]).strip() or metadata.full_evaluation_dataset
+            if "quick_benchmark_repeats" in params:
+                metadata.quick_benchmark_repeats = max(1, int(params["quick_benchmark_repeats"]))
+            if "full_evaluation_repeats" in params:
+                metadata.full_evaluation_repeats = max(1, int(params["full_evaluation_repeats"]))
             if "preferred_provider" in params:
                 metadata.preferred_provider = str(params["preferred_provider"])
             if "preferred_judge_provider" in params:
@@ -168,6 +173,12 @@ class PromptForgeHelper:
                 metadata.preferred_generation_model = str(params["preferred_generation_model"]).strip() or metadata.preferred_generation_model
             if "preferred_judge_model" in params:
                 metadata.preferred_judge_model = str(params["preferred_judge_model"]).strip() or metadata.preferred_judge_model
+            if "preferred_agent_model" in params:
+                metadata.preferred_agent_model = str(params["preferred_agent_model"]).strip() or metadata.preferred_agent_model
+            if "builder_permission_mode" in params:
+                metadata.builder_permission_mode = str(params["builder_permission_mode"]).strip() or metadata.builder_permission_mode
+            if "builder_research_policy" in params:
+                metadata.builder_research_policy = str(params["builder_research_policy"]).strip() or metadata.builder_research_policy
             self.project.save()
             self.workspace = self._build_workspace()
             return self._settings_payload()
@@ -207,6 +218,7 @@ class PromptForgeHelper:
         if method == "prompt.get":
             prompt = self._resolve_prompt_ref(params)
             self.workspace.set_active_prompt(prompt)
+            self.workspace.ensure_default_scenario(prompt)
             return {"prompt": self.workspace.load_visible_prompt(prompt).model_dump(mode="json")}
         if method == "prompt.save":
             prompt = self._resolve_prompt_ref(params)
@@ -217,12 +229,92 @@ class PromptForgeHelper:
                 purpose=str(params.get("purpose", "")),
                 expected_behavior=str(params.get("expected_behavior", "")),
                 success_criteria=str(params.get("success_criteria", "")),
+                baseline_prompt_ref=str(params.get("baseline_prompt_ref", "")),
+                primary_scenario_suites=[str(item) for item in params.get("primary_scenario_suites", [])],
+                owner=str(params.get("owner", "")),
+                audience=str(params.get("audience", "")),
+                release_notes=str(params.get("release_notes", "")),
+                builder_agent_model=str(params.get("builder_agent_model", self.project.metadata.preferred_agent_model)),
+                builder_permission_mode=str(params.get("builder_permission_mode", self.project.metadata.builder_permission_mode)),
+                research_policy=str(params.get("research_policy", self.project.metadata.builder_research_policy)),
             )
             return {
                 "revision": revision.model_dump(mode="json"),
                 "prompt": self.workspace.load_visible_prompt(prompt).model_dump(mode="json"),
                 "insights": await self._latest_insights(prompt),
             }
+        if method == "scenarios.list":
+            prompt = params.get("prompt")
+            suites = self.workspace.list_scenarios(prompt_ref=str(prompt) if prompt else None)
+            return {"suites": [suite.model_dump(mode="json") for suite in suites]}
+        if method == "scenarios.get":
+            suite = self.workspace.load_scenario(str(params["suite_id"]))
+            return {"suite": suite.model_dump(mode="json")}
+        if method == "scenarios.create":
+            prompt = params.get("prompt")
+            suite = self.workspace.create_scenario(
+                str(params["suite_id"]),
+                prompt_ref=str(prompt) if prompt else None,
+                name=str(params.get("name") or params["suite_id"]),
+                description=str(params.get("description", "")),
+            )
+            return {"suite": suite.model_dump(mode="json")}
+        if method == "scenarios.save":
+            suite_model = ScenarioSuite.model_validate(params["suite"])
+            suite_path = self.workspace.save_scenario(suite_model)
+            saved = self.workspace.load_scenario(Path(suite_path).stem)
+            return {"suite": saved.model_dump(mode="json")}
+        if method == "playground.run":
+            prompt = self._resolve_prompt_ref(params)
+            run = await self.workspace.run_playground(
+                prompt,
+                input_payload=dict(params.get("input_payload") or {}),
+                context=params.get("context"),
+                samples=max(1, int(params.get("samples", 1))),
+                compare_baseline=bool(params.get("compare_baseline", True)),
+            )
+            return {"playground": run.model_dump(mode="json")}
+        if method == "review.run_suite":
+            prompt = self._resolve_prompt_ref(params)
+            review = await self.workspace.run_scenario_suite(
+                prompt,
+                str(params["suite_id"]),
+                repeats=int(params["repeats"]) if params.get("repeats") is not None else None,
+            )
+            return {"review": review.model_dump(mode="json")}
+        if method == "review.latest":
+            prompt = self._resolve_prompt_ref(params)
+            reviews = await self.workspace.list_reviews(prompt)
+            return {"reviews": [review.model_dump(mode="json") for review in reviews]}
+        if method == "builder.actions":
+            prompt = self._resolve_prompt_ref(params)
+            actions = await self.workspace.list_builder_actions(prompt)
+            return {"actions": [action.model_dump(mode="json") for action in actions]}
+        if method == "decisions.list":
+            prompt = self._resolve_prompt_ref(params)
+            decisions = await self.workspace.list_decisions(prompt)
+            return {"decisions": [decision.model_dump(mode="json") for decision in decisions]}
+        if method == "decisions.record":
+            prompt = self._resolve_prompt_ref(params)
+            decision = await self.workspace.record_review_decision(
+                prompt,
+                status=str(params["status"]),
+                summary=str(params["summary"]),
+                rationale=str(params.get("rationale", "")),
+                review_id=str(params.get("review_id")) if params.get("review_id") else None,
+                suite_id=str(params.get("suite_id")) if params.get("suite_id") else None,
+            )
+            return {"decision": decision.model_dump(mode="json")}
+        if method == "decisions.promote":
+            prompt = self._resolve_prompt_ref(params)
+            decision = await self.workspace.promote_to_baseline(
+                prompt,
+                summary=str(params["summary"]),
+                rationale=str(params.get("rationale", "")),
+                review_id=str(params.get("review_id")) if params.get("review_id") else None,
+                suite_id=str(params.get("suite_id")) if params.get("suite_id") else None,
+            )
+            return {"decision": decision.model_dump(mode="json"), "insights": await self._latest_insights(prompt)}
         if method == "agent.prepare_edit":
             prompt = self._resolve_prompt_ref(params)
             proposal = await self.workspace.prepare_agent_request(prompt, str(params["request"]))
@@ -369,10 +461,15 @@ class PromptForgeHelper:
                 "name": metadata.name,
                 "quick_benchmark_dataset": metadata.quick_benchmark_dataset,
                 "full_evaluation_dataset": metadata.full_evaluation_dataset,
+                "quick_benchmark_repeats": metadata.quick_benchmark_repeats,
+                "full_evaluation_repeats": metadata.full_evaluation_repeats,
                 "preferred_provider": metadata.preferred_provider,
                 "preferred_judge_provider": metadata.preferred_judge_provider or metadata.preferred_provider,
                 "preferred_generation_model": metadata.preferred_generation_model,
                 "preferred_judge_model": metadata.preferred_judge_model,
+                "preferred_agent_model": metadata.preferred_agent_model,
+                "builder_permission_mode": metadata.builder_permission_mode,
+                "builder_research_policy": metadata.builder_research_policy,
             },
             "auth": self._status_payload()["auth"],
         }
@@ -399,6 +496,9 @@ class PromptForgeHelper:
                 "weak_cases": [],
                 "failures": [],
                 "pending_edits": [],
+                "builder_actions": [],
+                "reviews": [],
+                "decisions": [],
             }
         latest = session.latest_revision
         return {
@@ -427,6 +527,9 @@ class PromptForgeHelper:
                 for row in session.benchmark_case_rows(limit=5, failures_only=True)
             ],
             "pending_edits": [edit.model_dump(mode="json") for edit in session.list_pending_edits()],
+            "builder_actions": [action.model_dump(mode="json") for action in session.list_builder_actions(limit=12)],
+            "reviews": [review.model_dump(mode="json") for review in session.history.reviews[-5:]],
+            "decisions": [decision.model_dump(mode="json") for decision in session.history.decisions[-5:]],
         }
 
 
