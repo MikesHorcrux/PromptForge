@@ -8,9 +8,12 @@ def test_render_prompt_pack_validates_and_renders() -> None:
 
     rendered = render_user_prompt(prompt_pack, dataset.cases[0])
 
-    assert "Avery" in rendered
-    assert "Summary, Answer, and Next Steps" in rendered
-    assert "Refunds are available within 30 days" in rendered
+    assert "Avery Chen" in rendered
+    assert "Write a support reply for the case below." in rendered
+    assert "## Summary" in rendered
+    assert "## Answer" in rendered
+    assert "## Next Steps" in rendered
+    assert "Refunds are available within 30 calendar days" in rendered
 
 
 def test_render_prompt_pack_exposes_nested_input_payload(tmp_path) -> None:

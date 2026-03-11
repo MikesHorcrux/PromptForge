@@ -72,40 +72,15 @@ struct ContentView: View {
         NavigationSplitView {
             sidebarView
         } detail: {
-            detailView
-                .background(canvasBackground)
+            VStack(spacing: 0) {
+                WorkspaceTopBar()
+                    .environmentObject(model)
+                Divider()
+                detailView
+                    .background(canvasBackground)
+            }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 10) {
-                    Text(model.currentPromptName.isEmpty ? (model.selectedPrompt ?? model.projectName) : model.currentPromptName)
-                        .font(.headline)
-                    if let selectedPrompt = model.selectedPrompt {
-                        Text(selectedPrompt)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            ToolbarItemGroup {
-                Button("Studio") { model.showStudio() }
-                    .disabled(model.selectedPrompt == nil)
-                Button("Tests") { model.showTests() }
-                    .disabled(model.selectedPrompt == nil)
-                Button("Review") { model.showReview() }
-                    .disabled(model.reviews.isEmpty)
-                Button("Run") { model.runQuickBenchmark() }
-                    .disabled(model.selectedPrompt == nil)
-                Button("Suite") { model.runScenarioReview() }
-                    .disabled(model.selectedPrompt == nil || model.selectedSuite == nil)
-                Button("Playground") { model.runPlayground() }
-                    .disabled(model.selectedPrompt == nil)
-                Button("Commands") { model.openCommandBar() }
-                Button("Settings") { model.openSettings() }
-            }
-        }
     }
 
     private var sidebarView: some View {
@@ -148,6 +123,22 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Button("Commands") {
+                    model.openCommandBar()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Settings") {
+                    model.openSettings()
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(16)
+            .background(sidebarBackground)
         }
         .background(sidebarBackground)
     }
@@ -210,16 +201,9 @@ struct ContentView: View {
                         .environmentObject(model)
                         .frame(minWidth: 280, idealWidth: 320)
 
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            ScenarioSuiteCard()
-                                .environmentObject(model)
-                            ScenarioCaseEditorCard()
-                                .environmentObject(model)
-                        }
-                        .padding(16)
-                    }
-                    .frame(minWidth: 640)
+                    ScenarioIDEPane()
+                        .environmentObject(model)
+                        .frame(minWidth: 720, idealWidth: 920)
                 }
             } else {
                 PanelCard(title: "Scenario Suites") {
@@ -323,6 +307,84 @@ struct ContentView: View {
     }
 }
 
+private struct WorkspaceTopBar: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+
+    var body: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 10) {
+                Text(model.currentPromptName.isEmpty ? (model.selectedPrompt ?? model.projectName) : model.currentPromptName)
+                    .font(.headline)
+                if let selectedPrompt = model.selectedPrompt {
+                    Text(selectedPrompt)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                workspaceButton("Studio", mode: .studio, enabled: model.selectedPrompt != nil)
+                workspaceButton("Tests", mode: .tests, enabled: model.selectedPrompt != nil)
+                workspaceButton("Review", mode: .review, enabled: !model.reviews.isEmpty)
+            }
+
+            Divider()
+                .frame(height: 20)
+
+            HStack(spacing: 8) {
+                actionButton("Quick Check", systemImage: "bolt.horizontal", enabled: model.selectedPrompt != nil) {
+                    model.runQuickBenchmark()
+                }
+                actionButton("Run Suite", systemImage: "checklist", enabled: model.selectedPrompt != nil && model.selectedSuite != nil) {
+                    model.runScenarioReview()
+                }
+                actionButton("Playground", systemImage: "play.square", enabled: model.selectedPrompt != nil) {
+                    model.runPlayground()
+                }
+            }
+
+            if model.isBusy {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(model.busyLabel.isEmpty ? "Working" : model.busyLabel)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(appAccent)
+                }
+                .padding(.leading, 4)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(canvasBackground)
+    }
+
+    private func workspaceButton(_ title: String, mode: PromptWorkspaceMode, enabled: Bool) -> some View {
+        Button(title) {
+            switch mode {
+            case .studio:
+                model.showStudio()
+            case .tests:
+                model.showTests()
+            case .review:
+                model.showReview()
+            }
+        }
+        .buttonStyle(TopBarModeButtonStyle(isSelected: model.selectedWorkspaceMode == mode))
+        .disabled(!enabled)
+    }
+
+    private func actionButton(_ title: String, systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+        }
+        .buttonStyle(TopBarActionButtonStyle())
+        .disabled(!enabled || model.isBusy)
+    }
+}
+
 private struct PromptSidebarRow: View {
     let prompt: PromptSummaryModel
     let isSelected: Bool
@@ -359,6 +421,47 @@ private struct SidebarMetaRow: View {
                 .lineLimit(2)
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct TopBarModeButtonStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(configuration.isPressed ? 0.75 : 0.9))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? appAccent : Color.black.opacity(configuration.isPressed ? 0.08 : 0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? appAccent.opacity(0.35) : borderColor, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .opacity(configuration.isPressed ? 0.96 : 1)
+    }
+}
+
+private struct TopBarActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.black.opacity(configuration.isPressed ? 0.08 : 0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(borderColor, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -1041,28 +1144,31 @@ private struct ScenarioCaseNavigator: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PanelCard(title: "Cases") {
-                VStack(alignment: .leading, spacing: 10) {
-                    if let suite = model.activeScenarioSuite {
-                        Text("\(suite.cases.count) cases in \(suite.name)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Cases")
+                    .font(.headline)
+                if let suite = model.activeScenarioSuite {
+                    Text("\(suite.cases.count) cases in \(suite.name)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Each case is a test input. Run the suite to compare the current prompt against the baseline prompt on these same cases.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("New Case") {
+                        model.createScenarioCase()
                     }
-                    HStack(spacing: 8) {
-                        Button("New Case") {
-                            model.createScenarioCase()
-                        }
-                        .buttonStyle(.bordered)
+                    .buttonStyle(.bordered)
 
-                        Button("Duplicate") {
-                            model.duplicateSelectedScenarioCase()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(model.selectedScenarioCase == nil)
+                    Button("Duplicate") {
+                        model.duplicateSelectedScenarioCase()
                     }
+                    .buttonStyle(.bordered)
+                    .disabled(model.selectedScenarioCase == nil)
                 }
             }
-            .padding([.top, .horizontal], 16)
+            .padding(16)
 
             List(selection: Binding(
                 get: { model.selectedScenarioCaseID },
@@ -1086,21 +1192,18 @@ private struct ScenarioCaseNavigator: View {
     }
 }
 
-private struct ScenarioSuiteCard: View {
+private struct ScenarioIDEPane: View {
     @EnvironmentObject private var model: PromptForgeAppModel
 
     var body: some View {
-        PanelCard(title: model.activeScenarioSuite?.name ?? "Scenario Suite") {
-            VStack(alignment: .leading, spacing: 12) {
-                LabeledField(label: "Suite Name", text: suiteBinding(\.name))
-                LabeledTextEditor(label: "Description", text: suiteBinding(\.description), minHeight: 80, font: .system(.body, design: .default))
-                LabeledField(label: "Linked Prompts", text: linkedPromptsBinding)
-
-                HStack(spacing: 10) {
-                    if let suite = model.activeScenarioSuite {
-                        SoftBadge(label: "Cases", value: "\(suite.cases.count)")
-                        SoftBadge(label: "Suite ID", value: suite.suiteID)
-                    }
+        VSplitView {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text(model.activeScenarioSuite?.name ?? "Suite")
+                        .font(.headline)
+                    Text(model.activeScenarioSuite?.suiteID ?? "--")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Button("Run Selected Suite") {
                         model.runScenarioReview()
@@ -1111,12 +1214,50 @@ private struct ScenarioSuiteCard: View {
                     }
                     .buttonStyle(.bordered)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
-                if let scenarioNotice = model.scenarioNotice, !scenarioNotice.isEmpty {
-                    Text(scenarioNotice)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Divider()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ScenarioSuiteEditor()
+                            .environmentObject(model)
+                        ScenarioCaseEditor()
+                            .environmentObject(model)
+                    }
+                    .padding(16)
                 }
+            }
+        }
+        .background(canvasBackground)
+    }
+}
+
+private struct ScenarioSuiteEditor: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+
+    var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+            LabeledField(label: "Test Suite", text: suiteBinding(\.name))
+            LabeledTextEditor(label: "Description", text: suiteBinding(\.description), minHeight: 80, font: .system(.body, design: .default))
+            LabeledField(label: "Prompts Under Test", text: linkedPromptsBinding)
+
+            HStack(spacing: 10) {
+                if let suite = model.activeScenarioSuite {
+                    SoftBadge(label: "Cases", value: "\(suite.cases.count)")
+                    SoftBadge(label: "Suite ID", value: suite.suiteID)
+                }
+            }
+
+            Text("Run Suite executes every case against the current prompt and the baseline, then opens Review with pass/fail results and regressions.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let scenarioNotice = model.scenarioNotice, !scenarioNotice.isEmpty {
+                Text(scenarioNotice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1151,7 +1292,7 @@ private struct ScenarioSuiteCard: View {
     }
 }
 
-private struct ScenarioCaseEditorCard: View {
+private struct ScenarioCaseEditor: View {
     @EnvironmentObject private var model: PromptForgeAppModel
     private let assertionKinds = [
         "required_string",
@@ -1165,79 +1306,85 @@ private struct ScenarioCaseEditorCard: View {
     private let assertionSeverities = ["info", "warn", "fail"]
 
     var body: some View {
-        PanelCard(title: model.selectedScenarioCase?.title.isEmpty == false ? (model.selectedScenarioCase?.title ?? "Scenario Case") : "Scenario Case") {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(model.selectedScenarioCase?.title.isEmpty == false ? (model.selectedScenarioCase?.title ?? "Scenario Case") : "Scenario Case")
+                .font(.headline)
+
             if let scenarioCase = model.selectedScenarioCase {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 12) {
-                        LabeledField(label: "Title", text: caseBinding(\.title))
-                        LabeledField(label: "Case ID", text: .constant(scenarioCase.caseID))
+                HStack(spacing: 12) {
+                    LabeledField(label: "Title", text: caseBinding(\.title))
+                    LabeledField(label: "Case ID", text: .constant(scenarioCase.caseID))
+                }
+                HStack(spacing: 10) {
+                    Button("Add Assertion") {
+                        model.addAssertionToSelectedCase()
                     }
-                    HStack(spacing: 10) {
-                        Button("Add Assertion") {
-                            model.addAssertionToSelectedCase()
-                        }
-                        .buttonStyle(.bordered)
-                        Button("Delete Case") {
-                            model.deleteSelectedScenarioCase()
-                        }
-                        .buttonStyle(.bordered)
+                    .buttonStyle(.bordered)
+                    Button("Delete Case") {
+                        model.deleteSelectedScenarioCase()
                     }
+                    .buttonStyle(.bordered)
+                }
 
-                    LabeledField(label: "Tags", text: tagsBinding)
-                    LabeledTextEditor(label: "Context", text: caseBinding(\.contextText), minHeight: 70, font: .system(.body, design: .default))
-                    LabeledTextEditor(label: "Notes", text: caseBinding(\.notes), minHeight: 70, font: .system(.body, design: .default))
-                    LabeledTextEditor(label: "Input JSON", text: caseBinding(\.inputJSON), minHeight: 180, font: .system(.caption, design: .monospaced))
+                LabeledField(label: "Tags", text: tagsBinding)
+                LabeledTextEditor(label: "Scenario", text: caseBinding(\.contextText), minHeight: 90, font: .system(.body, design: .default))
+                LabeledTextEditor(label: "Notes", text: caseBinding(\.notes), minHeight: 90, font: .system(.body, design: .default))
+                LabeledTextEditor(label: "Input", text: caseBinding(\.inputJSON), minHeight: 220, font: .system(.caption, design: .monospaced))
 
-                    PanelCard(title: "Assertions") {
-                        if scenarioCase.assertions.isEmpty {
-                            Text("Add assertions to define required content, token ceilings, or tone checks.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(Array(scenarioCase.assertions.enumerated()), id: \.element.id) { index, assertion in
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        HStack {
-                                            Text(assertion.assertionID)
-                                                .font(.caption.monospaced())
-                                                .foregroundStyle(.secondary)
-                                            Spacer()
-                                            Button("Remove") {
-                                                removeAssertion(at: index)
-                                            }
-                                            .buttonStyle(.borderless)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Assertions")
+                        .font(.headline)
+                    Text("Assertions are the checks this case must pass. Use required text for must-include phrases, max words for length limits, and trait minimum for judged quality floors.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if scenarioCase.assertions.isEmpty {
+                        Text("Add assertions to define required content, token ceilings, or tone checks.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(Array(scenarioCase.assertions.enumerated()), id: \.element.id) { index, assertion in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack {
+                                        Text(assertion.assertionID)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Remove") {
+                                            removeAssertion(at: index)
                                         }
-                                        LabeledField(label: "Label", text: assertionBinding(index: index, keyPath: \.label))
-                                        HStack(spacing: 12) {
-                                            LabeledRow(label: "Kind") {
-                                                Picker("Kind", selection: assertionBinding(index: index, keyPath: \.kind)) {
-                                                    ForEach(assertionKinds, id: \.self) { kind in
-                                                        Text(kind).tag(kind)
-                                                    }
+                                        .buttonStyle(.borderless)
+                                    }
+                                    LabeledField(label: "Label", text: assertionBinding(index: index, keyPath: \.label))
+                                    HStack(spacing: 12) {
+                                        LabeledRow(label: "Kind") {
+                                            Picker("Kind", selection: assertionBinding(index: index, keyPath: \.kind)) {
+                                                ForEach(assertionKinds, id: \.self) { kind in
+                                                    Text(kind).tag(kind)
                                                 }
-                                                .pickerStyle(.menu)
                                             }
-                                            LabeledRow(label: "Severity") {
-                                                Picker("Severity", selection: assertionBinding(index: index, keyPath: \.severity)) {
-                                                    ForEach(assertionSeverities, id: \.self) { severity in
-                                                        Text(severity).tag(severity)
-                                                    }
-                                                }
-                                                .pickerStyle(.segmented)
-                                            }
+                                            .pickerStyle(.menu)
                                         }
-                                        HStack(spacing: 12) {
-                                            LabeledField(label: "Expected Text", text: assertionBinding(index: index, keyPath: \.expectedText))
-                                            LabeledField(label: "Trait", text: assertionBinding(index: index, keyPath: \.trait))
-                                            LabeledField(label: "Threshold", text: assertionThresholdBinding(index: index))
+                                        LabeledRow(label: "Severity") {
+                                            Picker("Severity", selection: assertionBinding(index: index, keyPath: \.severity)) {
+                                                ForEach(assertionSeverities, id: \.self) { severity in
+                                                    Text(severity).tag(severity)
+                                                }
+                                            }
+                                            .pickerStyle(.segmented)
                                         }
                                     }
-                                    .padding(12)
-                                    .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(borderColor, lineWidth: 1)
-                                    )
+                                    HStack(spacing: 12) {
+                                        LabeledField(label: "Expected Text", text: assertionBinding(index: index, keyPath: \.expectedText))
+                                        LabeledField(label: "Trait", text: assertionBinding(index: index, keyPath: \.trait))
+                                        LabeledField(label: "Threshold", text: assertionThresholdBinding(index: index))
+                                    }
                                 }
+                                .padding(12)
+                                .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(borderColor, lineWidth: 1)
+                                )
                             }
                         }
                     }

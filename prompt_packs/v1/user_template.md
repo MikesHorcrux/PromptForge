@@ -1,16 +1,22 @@
-Write a customer support response for the following case.
+Write a support reply for the case below.
 
-Customer name: {{ customer_name }}
-Issue: {{ customer_issue }}
-Goal: {{ goal }}
-Requested tone: {{ tone }}
-Policy snippet:
+Customer
+- Name: {{ customer_name }}
+- Issue: {{ customer_issue }}
+- Goal: {{ goal }}
+- Requested tone: {{ tone }}
+
+Policy
 {{ policy_snippet }}
 
 {% if context %}
-Additional context:
+Additional context
 {{ context }}
 {% endif %}
 
-Return markdown with the sections Summary, Answer, and Next Steps.
+Return markdown with these sections:
+## Summary
+## Answer
+## Next Steps
 
+The reply must be specific to this case, operationally clear, and suitable for a customer support agent to send.

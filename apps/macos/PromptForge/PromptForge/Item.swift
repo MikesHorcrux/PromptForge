@@ -704,6 +704,7 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var latestDeltaLine: String = "--"
     @Published var statusSubtitle: String = "Open a project to begin."
     @Published var isBusy: Bool = false
+    @Published var busyLabel: String = ""
     @Published var launchError: String?
     @Published var showSettings: Bool = false
     @Published var showCommandBar: Bool = false
@@ -828,6 +829,16 @@ final class PromptForgeAppModel: ObservableObject {
         return review.cases.first(where: { $0.caseID == selectedReviewCaseID }) ?? review.cases.first
     }
 
+    private func withBusyState<T>(_ label: String, operation: () async throws -> T) async rethrows -> T {
+        isBusy = true
+        busyLabel = label
+        defer {
+            isBusy = false
+            busyLabel = ""
+        }
+        return try await operation()
+    }
+
     func chooseProjectFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -878,22 +889,22 @@ final class PromptForgeAppModel: ObservableObject {
     func createScenarioShortcut() {
         Task {
             guard let helper, let prompt = selectedPrompt else { return }
-            isBusy = true
-            defer { isBusy = false }
             do {
-                let suiteID = "suite-\(Int(Date().timeIntervalSince1970))"
-                _ = try await helper.send(
-                    method: "scenarios.create",
-                    params: [
-                        "prompt": prompt,
-                        "suite_id": suiteID,
-                        "name": "New Suite",
-                        "description": "New scenario suite created from the workspace.",
-                    ]
-                )
-                try await refreshScenarioSuites()
-                selectSuite(suiteID)
-                selectedWorkspaceMode = .tests
+                try await withBusyState("Creating test suite") {
+                    let suiteID = "suite-\(Int(Date().timeIntervalSince1970))"
+                    _ = try await helper.send(
+                        method: "scenarios.create",
+                        params: [
+                            "prompt": prompt,
+                            "suite_id": suiteID,
+                            "name": "New Suite",
+                            "description": "New scenario suite created from the workspace.",
+                        ]
+                    )
+                    try await refreshScenarioSuites()
+                    selectSuite(suiteID)
+                    selectedWorkspaceMode = .tests
+                }
             } catch {
                 appendTranscript(.warning, "Scenarios", error.localizedDescription)
             }
@@ -963,6 +974,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     func openProject(url: URL, engineRoot: String? = nil) async {
         isBusy = true
+        busyLabel = "Opening project"
         launchError = nil
         pendingProposal = nil
         promptSaveNotice = nil
@@ -974,6 +986,7 @@ final class PromptForgeAppModel: ObservableObject {
         guard beginProjectScope(for: url) else {
             launchError = "PromptForge needs folder access to open this project. Choose the project folder again to re-grant access."
             isBusy = false
+            busyLabel = ""
             return
         }
         SecurityScopedProjectStore.save(url: url)
@@ -1007,6 +1020,7 @@ final class PromptForgeAppModel: ObservableObject {
             appendTranscript(.warning, "Launch error", error.localizedDescription)
         }
         isBusy = false
+        busyLabel = ""
     }
 
     func saveSettings() {
@@ -1051,21 +1065,21 @@ final class PromptForgeAppModel: ObservableObject {
 
     func openPrompt(_ prompt: String, announce: Bool) async {
         guard let helper else { return }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let promptResult = try await helper.send(method: "prompt.get", params: ["prompt": prompt])
-            applyPromptPayload(promptResult)
-            let insightResult = try await helper.send(method: "insights.latest", params: ["prompt": prompt])
-            applyInsightsPayload(insightResult)
-            try await refreshScenarioSuites()
-            try await refreshReviews()
-            try await refreshBuilderActions()
-            try await refreshDecisions()
-            try await refreshStatus()
-            scenarioNotice = nil
-            if announce {
-                appendTranscript(.system, "Prompt", "Opened prompt \(prompt)")
+            try await withBusyState("Opening prompt") {
+                let promptResult = try await helper.send(method: "prompt.get", params: ["prompt": prompt])
+                applyPromptPayload(promptResult)
+                let insightResult = try await helper.send(method: "insights.latest", params: ["prompt": prompt])
+                applyInsightsPayload(insightResult)
+                try await refreshScenarioSuites()
+                try await refreshReviews()
+                try await refreshBuilderActions()
+                try await refreshDecisions()
+                try await refreshStatus()
+                scenarioNotice = nil
+                if announce {
+                    appendTranscript(.system, "Prompt", "Opened prompt \(prompt)")
+                }
             }
         } catch {
             appendTranscript(.warning, "Prompt", error.localizedDescription)
@@ -1091,40 +1105,40 @@ final class PromptForgeAppModel: ObservableObject {
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let result = try await helper.send(
-                method: "agent.chat",
-                params: ["prompt": prompt, "request": request]
-            )
-            let chatPayload = result["chat"] as? [String: Any] ?? [:]
-            let message = chatPayload["message"] as? String ?? ""
-            let chatKind = chatPayload["kind"] as? String ?? "reply"
+            try await withBusyState("Asking Forgie") {
+                let result = try await helper.send(
+                    method: "agent.chat",
+                    params: ["prompt": prompt, "request": request]
+                )
+                let chatPayload = result["chat"] as? [String: Any] ?? [:]
+                let message = chatPayload["message"] as? String ?? ""
+                let chatKind = chatPayload["kind"] as? String ?? "reply"
 
-            if let proposal = proposalFromResult(result) {
-                if shouldAutoApplyEdits {
-                    let summary = proposal.summary.isEmpty ? message : proposal.summary
-                    appendTranscript(.agent, "Applying edit", summary)
-                    try await autoApplyProposal(proposal, prompt: prompt)
-                } else {
-                    pendingProposal = proposal
-                    let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
-                    let summary = proposal.summary.isEmpty ? message : proposal.summary
-                    appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(summary)\n\n\(changedFiles)")
-                    if !proposal.diffPreview.isEmpty {
-                        appendTranscript(.result, "Diff preview", proposal.diffPreview)
+                if let proposal = proposalFromResult(result) {
+                    if shouldAutoApplyEdits {
+                        let summary = proposal.summary.isEmpty ? message : proposal.summary
+                        appendTranscript(.agent, "Applying edit", summary)
+                        try await autoApplyProposal(proposal, prompt: prompt)
+                    } else {
+                        pendingProposal = proposal
+                        let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
+                        let summary = proposal.summary.isEmpty ? message : proposal.summary
+                        appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(summary)\n\n\(changedFiles)")
+                        if !proposal.diffPreview.isEmpty {
+                            appendTranscript(.result, "Diff preview", proposal.diffPreview)
+                        }
                     }
+                } else if !message.isEmpty {
+                    let title = chatKind == "reply" ? "PromptForge" : "Agent"
+                    appendTranscript(.agent, title, message)
+                } else {
+                    throw HelperClientError.missingField("The helper did not return a message.")
                 }
-            } else if !message.isEmpty {
-                let title = chatKind == "reply" ? "PromptForge" : "Agent"
-                appendTranscript(.agent, title, message)
-            } else {
-                throw HelperClientError.missingField("The helper did not return a message.")
-            }
 
-            if result["revision"] != nil || result["insights"] != nil {
-                applyResultPayload(result)
+                if result["revision"] != nil || result["insights"] != nil {
+                    applyResultPayload(result)
+                }
             }
         } catch {
             appendTranscript(.warning, "Chat failed", error.localizedDescription)
@@ -1139,17 +1153,17 @@ final class PromptForgeAppModel: ObservableObject {
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let result = try await helper.send(
-                method: "coach.reply",
-                params: ["prompt": prompt, "request": request]
-            )
-            guard let reply = result["reply"] as? String, !reply.isEmpty else {
-                throw HelperClientError.missingField("The helper did not return a reply.")
+            try await withBusyState("Generating guidance") {
+                let result = try await helper.send(
+                    method: "coach.reply",
+                    params: ["prompt": prompt, "request": request]
+                )
+                guard let reply = result["reply"] as? String, !reply.isEmpty else {
+                    throw HelperClientError.missingField("The helper did not return a reply.")
+                }
+                appendTranscript(.agent, "Coach", reply)
             }
-            appendTranscript(.agent, "Coach", reply)
         } catch {
             appendTranscript(.warning, "Chat failed", error.localizedDescription)
         }
@@ -1163,24 +1177,24 @@ final class PromptForgeAppModel: ObservableObject {
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let result = try await helper.send(
-                method: "agent.prepare_edit",
-                params: ["prompt": prompt, "request": request]
-            )
-            guard let proposal = proposalFromResult(result) else {
-                throw HelperClientError.missingField("The helper did not return a proposal.")
-            }
-            if shouldAutoApplyEdits {
-                appendTranscript(.agent, "Applying edit", proposal.summary)
-                try await autoApplyProposal(proposal, prompt: prompt)
-            } else {
-                pendingProposal = proposal
-                let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
-                appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(proposal.summary)\n\n\(changedFiles)")
-                appendTranscript(.result, "Diff preview", proposal.diffPreview.isEmpty ? "No diff was produced." : proposal.diffPreview)
+            try await withBusyState("Preparing edit") {
+                let result = try await helper.send(
+                    method: "agent.prepare_edit",
+                    params: ["prompt": prompt, "request": request]
+                )
+                guard let proposal = proposalFromResult(result) else {
+                    throw HelperClientError.missingField("The helper did not return a proposal.")
+                }
+                if shouldAutoApplyEdits {
+                    appendTranscript(.agent, "Applying edit", proposal.summary)
+                    try await autoApplyProposal(proposal, prompt: prompt)
+                } else {
+                    pendingProposal = proposal
+                    let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
+                    appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(proposal.summary)\n\n\(changedFiles)")
+                    appendTranscript(.result, "Diff preview", proposal.diffPreview.isEmpty ? "No diff was produced." : proposal.diffPreview)
+                }
             }
         } catch {
             appendTranscript(.warning, "Proposal failed", error.localizedDescription)
@@ -1503,12 +1517,13 @@ final class PromptForgeAppModel: ObservableObject {
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let result = try await helper.send(method: method, params: ["prompt": prompt])
-            applyResultPayload(result)
-            await openPrompt(prompt, announce: false)
+            let label = method == "bench.run_quick" ? "Running quick check" : "Running evaluation"
+            try await withBusyState(label) {
+                let result = try await helper.send(method: method, params: ["prompt": prompt])
+                applyResultPayload(result)
+                await openPrompt(prompt, announce: false)
+            }
         } catch {
             appendTranscript(.warning, method, error.localizedDescription)
         }
@@ -1764,8 +1779,12 @@ final class PromptForgeAppModel: ObservableObject {
             let description = payload["description"] as? String ?? ""
             return PromptSummaryModel(version: version, name: name, description: description)
         }
-        if selectedPrompt == nil {
-            selectedPrompt = prompts.first?.version
+        let promptVersions = Set(prompts.map(\.version))
+        if let selectedPrompt, !promptVersions.contains(selectedPrompt) {
+            self.selectedPrompt = nil
+        }
+        if self.selectedPrompt == nil {
+            self.selectedPrompt = prompts.first?.version
         }
     }
 
@@ -1779,7 +1798,10 @@ final class PromptForgeAppModel: ObservableObject {
             throw HelperClientError.invalidResponse
         }
         projectName = metadata["name"] as? String ?? "PromptForge Project"
-        selectedPrompt = statusPayload["active_prompt"] as? String ?? selectedPrompt
+        if let activePrompt = statusPayload["active_prompt"] as? String {
+            let promptVersions = Set(prompts.map(\.version))
+            selectedPrompt = promptVersions.contains(activePrompt) ? activePrompt : prompts.first?.version
+        }
         sessionLine = "session \(statusPayload["active_session"] as? String ?? "--")"
         if
             let auth = statusPayload["auth"] as? [String: Any],
@@ -2068,22 +2090,22 @@ final class PromptForgeAppModel: ObservableObject {
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let payload = try await helper.send(
-                method: "playground.run",
-                params: [
-                    "prompt": prompt,
-                    "input_payload": inputPayload,
-                    "context": playgroundContext,
-                    "samples": playgroundSampleCount,
-                    "compare_baseline": true,
-                ]
-            )
-            latestPlaygroundRun = parsePlaygroundRun(payload["playground"] as? [String: Any] ?? [:])
-            try? await refreshBuilderActions()
-            scenarioNotice = nil
+            try await withBusyState("Running playground") {
+                let payload = try await helper.send(
+                    method: "playground.run",
+                    params: [
+                        "prompt": prompt,
+                        "input_payload": inputPayload,
+                        "context": playgroundContext,
+                        "samples": playgroundSampleCount,
+                        "compare_baseline": true,
+                    ]
+                )
+                latestPlaygroundRun = parsePlaygroundRun(payload["playground"] as? [String: Any] ?? [:])
+                try? await refreshBuilderActions()
+                scenarioNotice = nil
+            }
         } catch {
             appendTranscript(.warning, "Playground", error.localizedDescription)
         }
@@ -2097,21 +2119,23 @@ final class PromptForgeAppModel: ObservableObject {
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
-        isBusy = true
-        defer { isBusy = false }
         do {
-            let payload = try await helper.send(
-                method: "review.run_suite",
-                params: ["prompt": prompt, "suite_id": suiteID]
-            )
-            if let reviewPayload = payload["review"] as? [String: Any], let review = parseReview(reviewPayload) {
-                reviews.append(review)
-                selectedReviewID = review.reviewID
-                selectedReviewCaseID = review.cases.first?.caseID
-                selectedWorkspaceMode = .review
+            let caseCount = selectedSuite?.cases.count ?? 0
+            let label = caseCount > 0 ? "Running suite on \(caseCount) cases" : "Running suite"
+            try await withBusyState(label) {
+                let payload = try await helper.send(
+                    method: "review.run_suite",
+                    params: ["prompt": prompt, "suite_id": suiteID]
+                )
+                if let reviewPayload = payload["review"] as? [String: Any], let review = parseReview(reviewPayload) {
+                    reviews.append(review)
+                    selectedReviewID = review.reviewID
+                    selectedReviewCaseID = review.cases.first?.caseID
+                    selectedWorkspaceMode = .review
+                }
+                try? await refreshBuilderActions()
+                try? await refreshDecisions()
             }
-            try? await refreshBuilderActions()
-            try? await refreshDecisions()
         } catch {
             appendTranscript(.warning, "Review", error.localizedDescription)
         }

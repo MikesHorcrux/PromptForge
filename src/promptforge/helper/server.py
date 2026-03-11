@@ -413,13 +413,17 @@ class PromptForgeHelper:
         raise ValueError(f"Unsupported method: {method}")
 
     def _resolve_prompt_ref(self, params: dict[str, Any]) -> str:
-        prompt = params.get("prompt") or self.project.metadata.last_opened_prompt
-        if prompt:
-            return str(prompt)
         prompts = self.workspace.list_prompts()
         if not prompts:
             raise ValueError("No prompt packs are available in this project.")
-        return prompts[0].version
+        versions = {prompt.version for prompt in prompts}
+        prompt = str(params.get("prompt") or self.project.metadata.last_opened_prompt or "").strip()
+        if prompt in versions:
+            return prompt
+        fallback = prompts[0].version
+        if self.project.metadata.last_opened_prompt != fallback:
+            self.project.set_last_opened_prompt(fallback)
+        return fallback
 
     def _project_payload(self) -> dict[str, Any]:
         return {
@@ -428,7 +432,7 @@ class PromptForgeHelper:
         }
 
     def _status_payload(self) -> dict[str, Any]:
-        prompt = self.project.metadata.last_opened_prompt
+        prompt = self._resolve_prompt_ref({})
         session_id = self.workspace.state.prompt_sessions.get(prompt or "", "")
         provider_ok, provider_detail = _provider_auth_status(self.project.metadata.preferred_provider)
         judge_provider = self.project.metadata.preferred_judge_provider or self.project.metadata.preferred_provider

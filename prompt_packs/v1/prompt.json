@@ -1,0 +1,17 @@
+{
+  "audience": "Customer support agents handling post-purchase issues",
+  "baseline_prompt_ref": "",
+  "builder_agent_model": "gpt-5-mini",
+  "builder_permission_mode": "proposal_only",
+  "expected_behavior": "Produce an accurate, customer-ready reply that follows the supplied policy, explains the decision clearly, and gives the next operational step.",
+  "format_version": 1,
+  "owner": "Support Operations",
+  "primary_scenario_suites": [
+    "core"
+  ],
+  "prompt_blocks": [],
+  "purpose": "Answer support cases about refunds, shipping exceptions, warranty review, and operational next steps without inventing policy.",
+  "release_notes": "Baseline version focused on correct policy use and readable customer-facing structure.",
+  "research_policy": "prompt_only",
+  "success_criteria": "Responses are policy-grounded, under the word limit, use the expected sections, and never promise unsupported exceptions or outcomes."
+}

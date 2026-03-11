@@ -1,22 +1,25 @@
-Draft a customer support reply using the policy provided.
+Draft the final customer-facing support response for this case.
 
-Customer name: {{ customer_name }}
-Issue: {{ customer_issue }}
-Primary goal: {{ goal }}
-Target tone: {{ tone }}
+Customer details
+- Name: {{ customer_name }}
+- Issue: {{ customer_issue }}
+- Goal: {{ goal }}
+- Desired tone: {{ tone }}
 
-Policy source:
+Authoritative policy text
 {{ policy_snippet }}
 
 {% if context %}
-Operational context:
+Case context
 {{ context }}
 {% endif %}
 
-Return markdown with exactly these sections:
-## Summary
-## Answer
-## Next Steps
-
-The reply must be specific, scannable, and grounded in the policy text above.
-
+Requirements
+- Use markdown
+- Use exactly these headings:
+  - Summary
+  - Answer
+  - Next Steps
+- Stay under 190 words
+- Make the operational next action explicit
+- Do not promise an outcome that still requires review or verification

@@ -7,6 +7,7 @@ import yaml
 from promptforge.agents.prompt_judge.schemas import RubricJudgeOutput, RubricTraitScore
 from promptforge.core.config import settings
 from promptforge.core.models import ModelExecutionResult, RunConfig, ScoringConfig
+from promptforge.datasets.loader import load_dataset
 from promptforge.forge.service import ForgeSession
 
 
@@ -138,7 +139,8 @@ def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path,
     assert benchmark_revision.benchmark.mean_effective_score > session.baseline_revision.benchmark.mean_effective_score
     assert benchmark_revision.benchmark_vs_baseline is not None
     assert benchmark_revision.benchmark_vs_baseline.winner == "candidate"
-    assert gateway.generation_calls == 12
+    expected_generation_calls = len(load_dataset(session.manifest.benchmark_dataset_path).cases) * 4
+    assert gateway.generation_calls == expected_generation_calls
     assert session.latest_diff_rows(reference="baseline")
     case_rows = session.benchmark_case_rows(limit=3)
     assert len(case_rows) == 3

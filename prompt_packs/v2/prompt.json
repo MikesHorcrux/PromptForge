@@ -1,0 +1,17 @@
+{
+  "audience": "Customer support agents handling post-purchase issues",
+  "baseline_prompt_ref": "v1",
+  "builder_agent_model": "gpt-5-mini",
+  "builder_permission_mode": "proposal_only",
+  "expected_behavior": "Produce a precise support reply that follows policy exactly, avoids operational overpromises, and clearly separates the decision, rationale, and next action.",
+  "format_version": 1,
+  "owner": "Support Operations",
+  "primary_scenario_suites": [
+    "core"
+  ],
+  "prompt_blocks": [],
+  "purpose": "Write production-quality support responses for refund, shipping, and warranty requests where policy accuracy and next-step clarity matter.",
+  "release_notes": "Adds stricter language around approval gates, warranty qualification, and unsupported requests.",
+  "research_policy": "prompt_only",
+  "success_criteria": "Replies are concise, operationally safe, explicitly grounded in the provided policy text, and structured so an agent could send them with minimal editing."
+}

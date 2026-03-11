@@ -1,0 +1,179 @@
+{
+  "cases": [
+    {
+      "assertions": [
+        {
+          "assertion_id": "refund-window",
+          "expected_text": "30 calendar days",
+          "kind": "required_string",
+          "label": "Mentions 30 calendar days",
+          "severity": "fail",
+          "threshold": null,
+          "trait": null
+        },
+        {
+          "assertion_id": "refund-approval",
+          "expected_text": "approval",
+          "kind": "required_string",
+          "label": "Mentions approval requirement",
+          "severity": "fail",
+          "threshold": null,
+          "trait": null
+        },
+        {
+          "assertion_id": "refund-word-limit",
+          "expected_text": null,
+          "kind": "max_words",
+          "label": "Stays under 190 words",
+          "severity": "fail",
+          "threshold": 190.0,
+          "trait": null
+        }
+      ],
+      "case_id": "refund_unopened_accessory",
+      "context": "The customer included the order number, confirmed the box is still sealed, and asked whether they should mail the product back now.",
+      "format_expectations": {
+        "forbidden_strings": [],
+        "max_words": null,
+        "output_format": null,
+        "required_json_fields": [],
+        "required_sections": [],
+        "required_strings": []
+      },
+      "input": {
+        "customer_issue": "Wants a refund for an unopened herb grinder purchased 18 days ago.",
+        "customer_name": "Avery Chen",
+        "goal": "Confirm whether the refund is allowed and explain the exact next step.",
+        "policy_snippet": "Refunds are available within 30 calendar days for unused accessories in original packaging with proof of purchase. Refunds must be approved by support before return shipment.",
+        "tone": "warm, direct, reassuring"
+      },
+      "notes": "Checks that the reply approves the path but does not tell the customer to ship the product back before support approval.",
+      "rubric_targets": {},
+      "tags": [
+        "refunds",
+        "approval-gated"
+      ],
+      "title": "Refund for unopened accessory within policy window"
+    },
+    {
+      "assertions": [
+        {
+          "assertion_id": "claim-required",
+          "expected_text": "carrier claim",
+          "kind": "required_string",
+          "label": "Mentions carrier claim",
+          "severity": "fail",
+          "threshold": null,
+          "trait": null
+        },
+        {
+          "assertion_id": "verification-required",
+          "expected_text": "address verification",
+          "kind": "required_string",
+          "label": "Mentions address verification",
+          "severity": "fail",
+          "threshold": null,
+          "trait": null
+        },
+        {
+          "assertion_id": "shipment-word-limit",
+          "expected_text": null,
+          "kind": "max_words",
+          "label": "Stays under 190 words",
+          "severity": "fail",
+          "threshold": 190.0,
+          "trait": null
+        }
+      ],
+      "case_id": "lost_shipment_premium_customer",
+      "context": "Jordan already sent the tracking number and is a premium customer with a verified billing address on file.",
+      "format_expectations": {
+        "forbidden_strings": [],
+        "max_words": null,
+        "output_format": null,
+        "required_json_fields": [],
+        "required_sections": [],
+        "required_strings": []
+      },
+      "input": {
+        "customer_issue": "Has a tracking number that has shown no movement for six days and wants a replacement shipped immediately.",
+        "customer_name": "Jordan Patel",
+        "goal": "Acknowledge the delay, explain the claim process, and clarify when a replacement can be sent.",
+        "policy_snippet": "If tracking shows no carrier movement for 5 days, support may open a carrier claim. Premium customers may receive a replacement after address verification and claim creation.",
+        "tone": "reassuring, precise, operational"
+      },
+      "notes": "Checks that the reply does not promise an immediate replacement.",
+      "rubric_targets": {},
+      "tags": [
+        "shipping",
+        "premium"
+      ],
+      "title": "Premium customer with stalled tracking"
+    },
+    {
+      "assertions": [
+        {
+          "assertion_id": "warranty-window",
+          "expected_text": "6 months",
+          "kind": "required_string",
+          "label": "Mentions 6 months",
+          "severity": "fail",
+          "threshold": null,
+          "trait": null
+        },
+        {
+          "assertion_id": "warranty-proof",
+          "expected_text": "photo or video",
+          "kind": "required_string",
+          "label": "Requests photo or video proof",
+          "severity": "fail",
+          "threshold": null,
+          "trait": null
+        },
+        {
+          "assertion_id": "warranty-word-limit",
+          "expected_text": null,
+          "kind": "max_words",
+          "label": "Stays under 190 words",
+          "severity": "fail",
+          "threshold": 190.0,
+          "trait": null
+        }
+      ],
+      "case_id": "battery_failure_within_warranty",
+      "context": "Leah says the charger light stays red and the device never reaches a full charge. She has the original order confirmation.",
+      "format_expectations": {
+        "forbidden_strings": [],
+        "max_words": null,
+        "output_format": null,
+        "required_json_fields": [],
+        "required_sections": [],
+        "required_strings": []
+      },
+      "input": {
+        "customer_issue": "Reports that a battery stopped charging after four months and wants to know whether it can be replaced.",
+        "customer_name": "Leah Kim",
+        "goal": "Explain the warranty path and what evidence support needs before approving a replacement.",
+        "policy_snippet": "Battery defects reported within 6 months may qualify for warranty replacement after troubleshooting and photo or video verification. Consumable wear, water damage, and unauthorized modifications are excluded.",
+        "tone": "professional, supportive, specific"
+      },
+      "notes": "Checks that the reply frames this as review/qualification, not guaranteed approval.",
+      "rubric_targets": {},
+      "tags": [
+        "warranty",
+        "verification"
+      ],
+      "title": "Battery failure within warranty review window"
+    }
+  ],
+  "created_at": "2026-03-10T00:00:00Z",
+  "description": "Core production checks for refund, shipment, and warranty handling.",
+  "format_version": 1,
+  "linked_prompts": [
+    "v1",
+    "v2"
+  ],
+  "name": "Support Policy Core",
+  "suite_id": "core",
+  "updated_at": "2026-03-11T03:46:40+00:00"
+}

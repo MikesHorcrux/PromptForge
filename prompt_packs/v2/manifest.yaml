@@ -1,10 +1,9 @@
 apiVersion: 1
 version: v2
-name: Support Reply Precision
-description: Tighter support reply prompt with stricter structure and brevity.
+name: Support Policy Responder Production
+description: Production-grade prompt with tighter operational rules and clearer escalation behavior.
 output_format: markdown
 required_sections:
   - Summary
   - Answer
   - Next Steps
-

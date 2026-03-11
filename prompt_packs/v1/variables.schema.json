@@ -14,7 +14,7 @@
     "customer_issue": {"type": "string"},
     "goal": {"type": "string"},
     "tone": {"type": "string"},
-    "policy_snippet": {"type": "string"}
+    "policy_snippet": {"type": "string"},
+    "context": {"type": "string"}
   }
 }
-
