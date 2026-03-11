@@ -796,6 +796,10 @@ final class PromptForgeAppModel: ObservableObject {
         Array(transcript.suffix(4))
     }
 
+    var shouldAutoApplyEdits: Bool {
+        promptDraft.builderPermissionMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auto_apply"
+    }
+
     var selectedSuite: ScenarioSuiteModel? {
         guard let selectedSuiteID else { return scenarioSuites.first }
         return scenarioSuites.first(where: { $0.suiteID == selectedSuiteID }) ?? scenarioSuites.first
@@ -1099,12 +1103,18 @@ final class PromptForgeAppModel: ObservableObject {
             let chatKind = chatPayload["kind"] as? String ?? "reply"
 
             if let proposal = proposalFromResult(result) {
-                pendingProposal = proposal
-                let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
-                let summary = proposal.summary.isEmpty ? message : proposal.summary
-                appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(summary)\n\n\(changedFiles)")
-                if !proposal.diffPreview.isEmpty {
-                    appendTranscript(.result, "Diff preview", proposal.diffPreview)
+                if shouldAutoApplyEdits {
+                    let summary = proposal.summary.isEmpty ? message : proposal.summary
+                    appendTranscript(.agent, "Applying edit", summary)
+                    try await autoApplyProposal(proposal, prompt: prompt)
+                } else {
+                    pendingProposal = proposal
+                    let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
+                    let summary = proposal.summary.isEmpty ? message : proposal.summary
+                    appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(summary)\n\n\(changedFiles)")
+                    if !proposal.diffPreview.isEmpty {
+                        appendTranscript(.result, "Diff preview", proposal.diffPreview)
+                    }
                 }
             } else if !message.isEmpty {
                 let title = chatKind == "reply" ? "PromptForge" : "Agent"
@@ -1163,13 +1173,32 @@ final class PromptForgeAppModel: ObservableObject {
             guard let proposal = proposalFromResult(result) else {
                 throw HelperClientError.missingField("The helper did not return a proposal.")
             }
-            pendingProposal = proposal
-            let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
-            appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(proposal.summary)\n\n\(changedFiles)")
-            appendTranscript(.result, "Diff preview", proposal.diffPreview.isEmpty ? "No diff was produced." : proposal.diffPreview)
+            if shouldAutoApplyEdits {
+                appendTranscript(.agent, "Applying edit", proposal.summary)
+                try await autoApplyProposal(proposal, prompt: prompt)
+            } else {
+                pendingProposal = proposal
+                let changedFiles = proposal.changedFiles.isEmpty ? "No file changes." : "Files: \(proposal.changedFiles.joined(separator: ", "))"
+                appendTranscript(.agent, "Proposal \(proposal.proposalID)", "\(proposal.summary)\n\n\(changedFiles)")
+                appendTranscript(.result, "Diff preview", proposal.diffPreview.isEmpty ? "No diff was produced." : proposal.diffPreview)
+            }
         } catch {
             appendTranscript(.warning, "Proposal failed", error.localizedDescription)
         }
+    }
+
+    private func autoApplyProposal(_ proposal: PreparedProposal, prompt: String) async throws {
+        guard let helper else { return }
+        let result = try await helper.send(
+            method: "agent.apply_prepared_edit",
+            params: ["prompt": prompt, "proposal_id": proposal.proposalID]
+        )
+        pendingProposal = nil
+        if !proposal.diffPreview.isEmpty {
+            appendTranscript(.result, "Applied diff", proposal.diffPreview)
+        }
+        applyResultPayload(result)
+        await openPrompt(prompt, announce: false)
     }
 
     private func startEventStream() {
