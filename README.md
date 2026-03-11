@@ -27,7 +27,9 @@ What it does:
 - Includes an in-app settings surface for providers, models, datasets, auth status, and first-run onboarding
 - Opens each prompt into `Studio`, `Tests`, and `Review` workspaces
 - Treats plain chat messages as an agent conversation for the active prompt instead of requiring slash commands for every action
+- Includes a command bar (`Cmd-K`) for common app actions
 - Includes an in-app playground for ad hoc prompt trials and baseline comparisons
+- Supports reusable prompt blocks and inline draft diffs inside Studio
 - Tracks builder-agent actions, review decisions, and promotion records in the macOS UI
 - Uses a local helper process over a Unix socket for agent edits and benchmark calls
 - Resolves app API keys from macOS Keychain before falling back to inherited local env values
@@ -118,6 +120,10 @@ setup, status, and batch-evaluation surface.
 | `pf forge` | Open the PromptForge macOS app for the current project | Day-to-day prompt authoring, scenario testing, and review |
 | `pf prompts list` | List the available prompt packs | Review or script multi-prompt workspaces |
 | `pf prompts create --prompt draft-v1 --from v1` | Create a new prompt pack | Start a new prompt version quickly |
+| `pf scenario list --prompt v1` | List scenario suites linked to a prompt | Inspect available behavior suites |
+| `pf scenario run --suite core --prompt v1` | Run a scenario suite against a prompt | Generate review-ready scenario output |
+| `pf review --prompt v1` | Show the latest saved review for a prompt | Inspect the last scenario run from the CLI |
+| `pf promote --prompt v1` | Promote the current prompt workspace to baseline | Record a ship decision from the CLI |
 | `pf run --prompt v1 --dataset datasets/core.jsonl` | Evaluate one prompt pack | Score a single version |
 | `pf compare --a v1 --b v2 --dataset datasets/core.jsonl` | Compare two prompt packs | Promotion or regression checks |
 | `pf report --run <run_id>` | Print or rebuild a report for an existing run | Share or regenerate human-readable output |

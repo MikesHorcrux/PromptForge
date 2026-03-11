@@ -354,6 +354,7 @@ class ForgeSession:
             title="Prepared agent proposal",
             details=proposal.summary,
             files=changed_files,
+            tools=["prompt_files", "diff"],
         )
         return proposal
 
@@ -387,6 +388,7 @@ class ForgeSession:
             title="Applied staged proposal",
             details=proposal.summary,
             files=proposal.changed_files,
+            tools=["prompt_files", "diff"],
         )
         return AgentEditResult(
             summary=proposal.summary,
@@ -402,6 +404,7 @@ class ForgeSession:
             kind="proposal",
             title="Discarded staged proposal",
             details=f"Discarded {proposal_id}.",
+            tools=["diff"],
         )
         log_event(
             self.logger,
@@ -442,6 +445,7 @@ class ForgeSession:
             title="Edited prompt file",
             details=revision.note,
             files=[path.name],
+            tools=["prompt_files"],
         )
         return revision
 
@@ -482,6 +486,7 @@ class ForgeSession:
             title="Saved prompt workspace",
             details=revision.note,
             files=changed_files,
+            tools=["prompt_files", "prompt_metadata"],
         )
         return revision
 
@@ -496,6 +501,7 @@ class ForgeSession:
             kind="benchmark",
             title="Ran quick check",
             details=revision.note,
+            tools=["benchmark"],
         )
         return revision
 
@@ -514,6 +520,7 @@ class ForgeSession:
             title="Reset to baseline",
             details=revision.note,
             files=revision.changed_files,
+            tools=["baseline_restore"],
         )
         return revision
 
@@ -532,6 +539,7 @@ class ForgeSession:
             title="Restored revision",
             details=restored.note,
             files=restored.changed_files,
+            tools=["revision_restore"],
         )
         return restored
 
@@ -564,6 +572,7 @@ class ForgeSession:
             kind="full_evaluation",
             title="Ran full suite",
             details=note or "Full evaluation completed.",
+            tools=["full_evaluation"],
         )
         return latest
 
@@ -609,6 +618,7 @@ class ForgeSession:
             kind="playground",
             title="Ran playground trial",
             details=f"{samples} sample(s) on current prompt.",
+            tools=["playground"],
         )
         return run
 
@@ -655,6 +665,7 @@ class ForgeSession:
             kind="scenario_run",
             title="Ran scenario suite",
             details=f"{suite.name} with {len(suite.cases)} case(s).",
+            tools=["scenario_suite", "benchmark"],
         )
         return review
 
@@ -685,6 +696,7 @@ class ForgeSession:
             kind="decision",
             title="Recorded review decision",
             details=summary,
+            tools=["review"],
         )
         return decision
 
@@ -739,6 +751,7 @@ class ForgeSession:
             kind="chat",
             title="Builder chat",
             details=normalized,
+            tools=["chat"],
         )
 
         if self._is_simple_greeting(normalized):
@@ -1539,7 +1552,10 @@ class ForgeSession:
         title: str,
         details: str = "",
         files: list[str] | None = None,
+        tools: list[str] | None = None,
+        used_research: bool = False,
     ) -> None:
+        permission_mode = ensure_prompt_brief(self.working_prompt_dir).builder_permission_mode
         self.history.builder_actions.append(
             BuilderAction(
                 action_id=self._next_action_id(),
@@ -1547,6 +1563,9 @@ class ForgeSession:
                 title=title,
                 details=details,
                 files=files or [],
+                tools=tools or [],
+                used_research=used_research,
+                permission_mode=permission_mode,
             )
         )
         self.history.builder_actions = self.history.builder_actions[-100:]

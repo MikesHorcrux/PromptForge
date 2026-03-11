@@ -237,6 +237,7 @@ class PromptForgeHelper:
                 builder_agent_model=str(params.get("builder_agent_model", self.project.metadata.preferred_agent_model)),
                 builder_permission_mode=str(params.get("builder_permission_mode", self.project.metadata.builder_permission_mode)),
                 research_policy=str(params.get("research_policy", self.project.metadata.builder_research_policy)),
+                prompt_blocks=list(params.get("prompt_blocks") or []),
             )
             return {
                 "revision": revision.model_dump(mode="json"),

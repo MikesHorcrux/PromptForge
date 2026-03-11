@@ -315,6 +315,21 @@ def _resolve_forge_app_path() -> Path | None:
     return None
 
 
+def _build_workspace(project: PromptForgeProject) -> ForgeWorkspaceService:
+    return ForgeWorkspaceService(
+        dataset_path=project.metadata.full_evaluation_dataset,
+        bench_dataset_path=project.metadata.quick_benchmark_dataset,
+        model=project.metadata.preferred_generation_model,
+        agent_model=project.metadata.preferred_agent_model,
+        provider=project.metadata.preferred_provider,
+        judge_provider=project.metadata.preferred_judge_provider or project.metadata.preferred_provider,
+        run_config=RunConfig(),
+        scoring_config=ScoringConfig(judge_model=project.metadata.preferred_judge_model),
+        bench_repeats=project.metadata.quick_benchmark_repeats,
+        full_repeats=project.metadata.full_evaluation_repeats,
+    )
+
+
 def _forge_command_sync(args: argparse.Namespace) -> int:
     project_root = Path(args.project).resolve()
     engine_root = Path(__file__).resolve().parents[2]
@@ -353,18 +368,7 @@ def _forge_command_sync(args: argparse.Namespace) -> int:
 
 def _prompts_command(args: argparse.Namespace) -> int:
     project = PromptForgeProject.open_or_create(Path.cwd())
-    workspace = ForgeWorkspaceService(
-        dataset_path=project.metadata.full_evaluation_dataset,
-        bench_dataset_path=project.metadata.quick_benchmark_dataset,
-        model=project.metadata.preferred_generation_model,
-        agent_model="gpt-5-mini",
-        provider=project.metadata.preferred_provider,
-        judge_provider=project.metadata.preferred_judge_provider or project.metadata.preferred_provider,
-        run_config=RunConfig(),
-        scoring_config=ScoringConfig(judge_model=project.metadata.preferred_judge_model),
-        bench_repeats=1,
-        full_repeats=1,
-    )
+    workspace = _build_workspace(project)
     if args.prompts_command == "list":
         rows = workspace.list_prompts()
         table = Table(title="Prompt Packs")
@@ -387,6 +391,148 @@ def _prompts_command(args: argparse.Namespace) -> int:
     raise ValueError(f"Unknown prompts command: {args.prompts_command}")
 
 
+async def _scenario_run_command(args: argparse.Namespace) -> int:
+    project = PromptForgeProject.open_or_create(Path.cwd())
+    workspace = _build_workspace(project)
+    review = await workspace.run_scenario_suite(args.prompt, args.suite, repeats=args.repeats)
+    if args.json:
+        print(json.dumps(review.model_dump(mode="json"), indent=2, sort_keys=True))
+        return 0
+
+    print_banner("Scenario Run")
+    print_info(f"Ran suite `{review.suite_name}` for prompt `{args.prompt}`.")
+    summary_rows = [
+        ("Review", review.review_id),
+        ("Revision", review.revision_id or "--"),
+        ("Score delta", f"{review.diff.mean_score_delta:+.2f}" if review.diff and review.diff.mean_score_delta is not None else "--"),
+        ("Pass-rate delta", f"{review.diff.pass_rate_delta:+.2%}" if review.diff and review.diff.pass_rate_delta is not None else "--"),
+        ("Cases", str(len(review.cases))),
+    ]
+    print_key_value_block("Review Summary", summary_rows)
+
+    table = Table(title="Scenario Cases")
+    table.add_column("Case", style="bold yellow3")
+    table.add_column("Status")
+    table.add_column("Candidate")
+    table.add_column("Baseline")
+    table.add_column("Notes")
+    for case in review.cases:
+        status = "regressed" if case.regression else ("flaky" if case.flaky else "ok")
+        notes = ", ".join(case.hard_fail_reasons) if case.hard_fail_reasons else ""
+        table.add_row(
+            case.case_id,
+            status,
+            f"{case.candidate_score:.2f}" if case.candidate_score is not None else "--",
+            f"{case.baseline_score:.2f}" if case.baseline_score is not None else "--",
+            notes or "--",
+        )
+    console.print(table)
+    return 0
+
+
+def _scenario_command(args: argparse.Namespace) -> int:
+    project = PromptForgeProject.open_or_create(Path.cwd())
+    workspace = _build_workspace(project)
+    if args.scenario_command == "list":
+        suites = workspace.list_scenarios(prompt_ref=args.prompt)
+        if args.json:
+            print(json.dumps([suite.model_dump(mode="json") for suite in suites], indent=2, sort_keys=True))
+            return 0
+        table = Table(title="Scenario Suites")
+        table.add_column("Suite", style="bold yellow3")
+        table.add_column("Cases")
+        table.add_column("Linked prompts")
+        table.add_column("Description")
+        for suite in suites:
+            table.add_row(
+                suite.suite_id,
+                str(len(suite.cases)),
+                ", ".join(suite.linked_prompts) if suite.linked_prompts else "all",
+                suite.description or "--",
+            )
+        console.print(table)
+        return 0
+    if args.scenario_command == "show":
+        suite = workspace.load_scenario(args.suite)
+        if args.json:
+            print(json.dumps(suite.model_dump(mode="json"), indent=2, sort_keys=True))
+            return 0
+        print_banner("Scenario Suite")
+        print_key_value_block(
+            suite.name,
+            [
+                ("Suite ID", suite.suite_id),
+                ("Cases", str(len(suite.cases))),
+                ("Linked prompts", ", ".join(suite.linked_prompts) if suite.linked_prompts else "all"),
+                ("Description", suite.description or "--"),
+            ],
+        )
+        case_table = Table(title="Cases")
+        case_table.add_column("Case", style="bold yellow3")
+        case_table.add_column("Assertions")
+        case_table.add_column("Tags")
+        for scenario_case in suite.cases:
+            case_table.add_row(
+                scenario_case.case_id,
+                str(len(scenario_case.assertions)),
+                ", ".join(scenario_case.tags) if scenario_case.tags else "--",
+            )
+        console.print(case_table)
+        return 0
+    if args.scenario_command == "create":
+        suite = workspace.create_scenario(
+            args.suite,
+            prompt_ref=args.prompt,
+            name=args.name,
+            description=args.description or "",
+        )
+        print_success(f"Created scenario suite `{suite.suite_id}`.")
+        return 0
+    if args.scenario_command == "run":
+        return asyncio.run(_scenario_run_command(args))
+    raise ValueError(f"Unknown scenario command: {args.scenario_command}")
+
+
+def _review_command(args: argparse.Namespace) -> int:
+    project = PromptForgeProject.open_or_create(Path.cwd())
+    workspace = _build_workspace(project)
+    reviews = asyncio.run(workspace.list_reviews(args.prompt))
+    if not reviews:
+        print_warning(f"No reviews recorded for prompt `{args.prompt}`.")
+        return 1
+    review = reviews[-1]
+    if args.json:
+        print(json.dumps(review.model_dump(mode="json"), indent=2, sort_keys=True))
+        return 0
+    print_banner("Latest Review")
+    print_key_value_block(
+        review.suite_name,
+        [
+            ("Review", review.review_id),
+            ("Revision", review.revision_id or "--"),
+            ("Score delta", f"{review.diff.mean_score_delta:+.2f}" if review.diff and review.diff.mean_score_delta is not None else "--"),
+            ("Pass-rate delta", f"{review.diff.pass_rate_delta:+.2%}" if review.diff and review.diff.pass_rate_delta is not None else "--"),
+        ],
+    )
+    return 0
+
+
+def _promote_command(args: argparse.Namespace) -> int:
+    project = PromptForgeProject.open_or_create(Path.cwd())
+    workspace = _build_workspace(project)
+    decision = asyncio.run(
+        workspace.promote_to_baseline(
+            args.prompt,
+            summary=args.summary,
+            rationale=args.rationale or "",
+            review_id=args.review_id,
+            suite_id=args.suite_id,
+        )
+    )
+    print_success(f"Promoted `{args.prompt}` to baseline with decision `{decision.decision_id}`.")
+    return 0
+
+
 def _setup_command(args: argparse.Namespace) -> int:
     return run_setup_wizard(
         env_path=Path(args.env_file),
@@ -398,7 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pf",
         description="PromptForge prompt evaluation CLI",
-        epilog="PromptForge commands: setup, status, doctor, prompts, forge, run, compare, report",
+        epilog="PromptForge commands: setup, status, doctor, prompts, scenario, review, promote, forge, run, compare, report",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -437,6 +583,40 @@ def build_parser() -> argparse.ArgumentParser:
     prompts_create_parser.add_argument("--from", dest="from_prompt", default=None, help="Clone from an existing prompt pack")
     prompts_create_parser.add_argument("--name", default=None, help="Optional display name for the prompt pack")
     prompts_create_parser.set_defaults(prompts_command="create")
+
+    scenario_parser = subparsers.add_parser("scenario", help="List, inspect, create, and run scenario suites")
+    scenario_subparsers = scenario_parser.add_subparsers(dest="scenario_command", required=True)
+    scenario_list_parser = scenario_subparsers.add_parser("list", help="List scenario suites")
+    scenario_list_parser.add_argument("--prompt", default=None, help="Optional prompt ref to filter linked suites")
+    scenario_list_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
+    scenario_list_parser.set_defaults(scenario_command="list")
+    scenario_show_parser = scenario_subparsers.add_parser("show", help="Show one scenario suite")
+    scenario_show_parser.add_argument("--suite", required=True, help="Scenario suite id")
+    scenario_show_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
+    scenario_show_parser.set_defaults(scenario_command="show")
+    scenario_create_parser = scenario_subparsers.add_parser("create", help="Create a scenario suite")
+    scenario_create_parser.add_argument("--suite", required=True, help="New scenario suite id")
+    scenario_create_parser.add_argument("--prompt", default=None, help="Optional prompt ref to link")
+    scenario_create_parser.add_argument("--name", default=None, help="Display name")
+    scenario_create_parser.add_argument("--description", default="", help="Suite description")
+    scenario_create_parser.set_defaults(scenario_command="create")
+    scenario_run_parser = scenario_subparsers.add_parser("run", help="Run a scenario suite against a prompt")
+    scenario_run_parser.add_argument("--suite", required=True, help="Scenario suite id")
+    scenario_run_parser.add_argument("--prompt", required=True, help="Prompt ref to evaluate")
+    scenario_run_parser.add_argument("--repeats", type=int, default=None, help="Optional repeat count override")
+    scenario_run_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
+    scenario_run_parser.set_defaults(scenario_command="run")
+
+    review_parser = subparsers.add_parser("review", help="Show the latest recorded review for a prompt")
+    review_parser.add_argument("--prompt", required=True, help="Prompt ref")
+    review_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
+
+    promote_parser = subparsers.add_parser("promote", help="Promote the current prompt workspace to baseline")
+    promote_parser.add_argument("--prompt", required=True, help="Prompt ref")
+    promote_parser.add_argument("--summary", default="Promoted current candidate to baseline.", help="Decision summary")
+    promote_parser.add_argument("--rationale", default="", help="Optional rationale")
+    promote_parser.add_argument("--review-id", default=None, help="Optional review id")
+    promote_parser.add_argument("--suite-id", default=None, help="Optional scenario suite id")
 
     report_parser = subparsers.add_parser("report", help="Print or rebuild a run report")
     report_parser.add_argument("--run", required=True, help="Run id")
@@ -498,6 +678,12 @@ def main(argv: list[str] | None = None) -> int:
         return _forge_command_sync(args)
     if args.command == "prompts":
         return _prompts_command(args)
+    if args.command == "scenario":
+        return _scenario_command(args)
+    if args.command == "review":
+        return _review_command(args)
+    if args.command == "promote":
+        return _promote_command(args)
     parser.error(f"Unknown command: {args.command}")
     return 2
 

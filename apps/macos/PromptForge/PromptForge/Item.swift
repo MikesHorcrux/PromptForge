@@ -169,8 +169,19 @@ struct PromptWorkspaceDraft: Equatable {
     var builderAgentModel: String = "gpt-5-mini"
     var builderPermissionMode: String = "proposal_only"
     var researchPolicy: String = "prompt_only"
+    var promptBlocks: [PromptBlockModel] = []
     var systemPrompt: String = ""
     var userTemplate: String = ""
+}
+
+struct PromptBlockModel: Identifiable, Equatable {
+    let blockID: String
+    var title: String
+    var body: String
+    var target: String
+    var enabled: Bool
+
+    var id: String { blockID }
 }
 
 struct ScenarioAssertionModel: Identifiable, Equatable {
@@ -235,6 +246,9 @@ struct BuilderActionModel: Identifiable, Equatable {
     let title: String
     let details: String
     let files: [String]
+    let tools: [String]
+    let usedResearch: Bool
+    let permissionMode: String
     let createdAt: String
 
     var id: String { actionID }
@@ -692,6 +706,7 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var isBusy: Bool = false
     @Published var launchError: String?
     @Published var showSettings: Bool = false
+    @Published var showCommandBar: Bool = false
     @Published var settingsMode: String = "settings"
     @Published var settingsDraft: AppSettingsDraft = .init()
     @Published var openAIKeyDraft: String = ""
@@ -744,6 +759,32 @@ final class PromptForgeAppModel: ObservableObject {
 
     var promptHasUnsavedChanges: Bool {
         promptDraft != savedPromptDraft
+    }
+
+    var promptDiffPreview: String {
+        var sections: [String] = []
+        let draftBlocks = promptDraft.promptBlocks.map { "\($0.title) [\($0.target)]\n\($0.body)" }.joined(separator: "\n\n")
+        let savedBlocks = savedPromptDraft.promptBlocks.map { "\($0.title) [\($0.target)]\n\($0.body)" }.joined(separator: "\n\n")
+        sections.append(diffSection(title: "Purpose", before: savedPromptDraft.purpose, after: promptDraft.purpose))
+        sections.append(diffSection(title: "Expected Behavior", before: savedPromptDraft.expectedBehavior, after: promptDraft.expectedBehavior))
+        sections.append(diffSection(title: "Success Criteria", before: savedPromptDraft.successCriteria, after: promptDraft.successCriteria))
+        sections.append(diffSection(title: "Prompt Blocks", before: savedBlocks, after: draftBlocks))
+        sections.append(diffSection(title: "System Prompt", before: savedPromptDraft.systemPrompt, after: promptDraft.systemPrompt))
+        sections.append(diffSection(title: "User Template", before: savedPromptDraft.userTemplate, after: promptDraft.userTemplate))
+        return sections.filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    var effectiveBuilderTools: [String] {
+        var tools = ["Chat", "Prompt Files", "Diffs", "Playground", "Scenario Runs"]
+        if promptDraft.researchPolicy.lowercased().contains("allow") || promptDraft.researchPolicy.lowercased().contains("external") {
+            tools.append("External Research")
+        }
+        if promptDraft.builderPermissionMode.lowercased().contains("auto") {
+            tools.append("Direct Apply")
+        } else {
+            tools.append("Proposal Apply")
+        }
+        return tools
     }
 
     var selectedPromptSummary: PromptSummaryModel? {
@@ -865,6 +906,14 @@ final class PromptForgeAppModel: ObservableObject {
 
     func showReview() {
         selectedWorkspaceMode = .review
+    }
+
+    func openCommandBar() {
+        showCommandBar = true
+    }
+
+    func closeCommandBar() {
+        showCommandBar = false
     }
 
     func savePromptWorkspace() {
@@ -1591,6 +1640,15 @@ final class PromptForgeAppModel: ObservableObject {
                     "builder_agent_model": promptDraft.builderAgentModel,
                     "builder_permission_mode": promptDraft.builderPermissionMode,
                     "research_policy": promptDraft.researchPolicy,
+                    "prompt_blocks": promptDraft.promptBlocks.map { block in
+                        [
+                            "block_id": block.blockID,
+                            "title": block.title,
+                            "body": block.body,
+                            "target": block.target,
+                            "enabled": block.enabled,
+                        ]
+                    },
                 ]
             )
             applyPromptPayload(result)
@@ -1925,6 +1983,32 @@ final class PromptForgeAppModel: ObservableObject {
         }
     }
 
+    func addPromptBlock() {
+        let block = PromptBlockModel(
+            blockID: "block-\(Int(Date().timeIntervalSince1970))",
+            title: "New Block",
+            body: "",
+            target: "system",
+            enabled: true
+        )
+        promptDraft.promptBlocks.append(block)
+    }
+
+    func removePromptBlock(_ blockID: String) {
+        promptDraft.promptBlocks.removeAll { $0.blockID == blockID }
+    }
+
+    func insertPromptBlock(_ blockID: String) {
+        guard let block = promptDraft.promptBlocks.first(where: { $0.blockID == blockID }) else { return }
+        let normalizedBody = block.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBody.isEmpty else { return }
+        if block.target == "user" {
+            promptDraft.userTemplate = promptDraft.userTemplate.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + normalizedBody + "\n"
+        } else {
+            promptDraft.systemPrompt = promptDraft.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + normalizedBody + "\n"
+        }
+    }
+
     func runScenarioReview() {
         Task {
             await triggerScenarioReview()
@@ -2131,6 +2215,7 @@ final class PromptForgeAppModel: ObservableObject {
             builderAgentModel: payload["builder_agent_model"] as? String ?? "gpt-5-mini",
             builderPermissionMode: payload["builder_permission_mode"] as? String ?? "proposal_only",
             researchPolicy: payload["research_policy"] as? String ?? "prompt_only",
+            promptBlocks: (payload["prompt_blocks"] as? [[String: Any]] ?? []).compactMap(parsePromptBlock(_:)),
             systemPrompt: systemPrompt,
             userTemplate: userTemplate
         )
@@ -2269,6 +2354,9 @@ final class PromptForgeAppModel: ObservableObject {
             title: payload["title"] as? String ?? "Action",
             details: payload["details"] as? String ?? "",
             files: payload["files"] as? [String] ?? [],
+            tools: payload["tools"] as? [String] ?? [],
+            usedResearch: payload["used_research"] as? Bool ?? false,
+            permissionMode: payload["permission_mode"] as? String ?? "proposal_only",
             createdAt: payload["created_at"] as? String ?? ""
         )
     }
@@ -2357,6 +2445,17 @@ final class PromptForgeAppModel: ObservableObject {
         )
     }
 
+    private func parsePromptBlock(_ payload: [String: Any]) -> PromptBlockModel? {
+        guard let blockID = payload["block_id"] as? String else { return nil }
+        return PromptBlockModel(
+            blockID: blockID,
+            title: payload["title"] as? String ?? "Block",
+            body: payload["body"] as? String ?? "",
+            target: payload["target"] as? String ?? "system",
+            enabled: payload["enabled"] as? Bool ?? true
+        )
+    }
+
     private func parseJSONObject(from text: String) -> [String: Any]? {
         guard let data = text.data(using: .utf8) else { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
@@ -2395,5 +2494,81 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func appendTranscript(_ role: TranscriptRole, _ title: String, _ body: String) {
         transcript.append(TranscriptEntry(role: role, title: title, body: body))
+    }
+
+    private func diffSection(title: String, before: String, after: String) -> String {
+        let normalizedBefore = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAfter = after.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedBefore == normalizedAfter {
+            return ""
+        }
+        let diff = unifiedDiff(
+            from: normalizedBefore,
+            to: normalizedAfter,
+            fromLabel: "saved/\(title)",
+            toLabel: "draft/\(title)"
+        )
+        return diff.isEmpty ? "" : "\(title)\n\(diff)"
+    }
+
+    private func unifiedDiff(from before: String, to after: String, fromLabel: String, toLabel: String) -> String {
+        let beforeLines = before.isEmpty ? [] : before.components(separatedBy: .newlines)
+        let afterLines = after.isEmpty ? [] : after.components(separatedBy: .newlines)
+        let lcs = longestCommonSubsequence(beforeLines, afterLines)
+        var lines: [String] = ["--- \(fromLabel)", "+++ \(toLabel)"]
+        var beforeIndex = 0
+        var afterIndex = 0
+        for (commonBefore, commonAfter) in lcs {
+            while beforeIndex < commonBefore {
+                lines.append("-\(beforeLines[beforeIndex])")
+                beforeIndex += 1
+            }
+            while afterIndex < commonAfter {
+                lines.append("+\(afterLines[afterIndex])")
+                afterIndex += 1
+            }
+            lines.append(" \(beforeLines[commonBefore])")
+            beforeIndex = commonBefore + 1
+            afterIndex = commonAfter + 1
+        }
+        while beforeIndex < beforeLines.count {
+            lines.append("-\(beforeLines[beforeIndex])")
+            beforeIndex += 1
+        }
+        while afterIndex < afterLines.count {
+            lines.append("+\(afterLines[afterIndex])")
+            afterIndex += 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func longestCommonSubsequence(_ before: [String], _ after: [String]) -> [(Int, Int)] {
+        guard !before.isEmpty, !after.isEmpty else { return [] }
+        var table = Array(repeating: Array(repeating: 0, count: after.count + 1), count: before.count + 1)
+        for beforeIndex in before.indices.reversed() {
+            for afterIndex in after.indices.reversed() {
+                if before[beforeIndex] == after[afterIndex] {
+                    table[beforeIndex][afterIndex] = table[beforeIndex + 1][afterIndex + 1] + 1
+                } else {
+                    table[beforeIndex][afterIndex] = max(table[beforeIndex + 1][afterIndex], table[beforeIndex][afterIndex + 1])
+                }
+            }
+        }
+
+        var matches: [(Int, Int)] = []
+        var beforeIndex = 0
+        var afterIndex = 0
+        while beforeIndex < before.count, afterIndex < after.count {
+            if before[beforeIndex] == after[afterIndex] {
+                matches.append((beforeIndex, afterIndex))
+                beforeIndex += 1
+                afterIndex += 1
+            } else if table[beforeIndex + 1][afterIndex] >= table[beforeIndex][afterIndex + 1] {
+                beforeIndex += 1
+            } else {
+                afterIndex += 1
+            }
+        }
+        return matches
     }
 }

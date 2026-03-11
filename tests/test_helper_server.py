@@ -259,6 +259,15 @@ def test_helper_prompt_save_persists_prompt_workspace_fields(tmp_path, monkeypat
                         "purpose": "Support refund requests.",
                         "expected_behavior": "Answer in plain language with next steps.",
                         "success_criteria": "Includes policy answer and asks for proof of purchase.",
+                        "prompt_blocks": [
+                            {
+                                "block_id": "refund-policy",
+                                "title": "Refund Policy",
+                                "body": "Mention the 30 day unopened-item refund policy.",
+                                "target": "system",
+                                "enabled": True,
+                            }
+                        ],
                     },
                 )
         )
@@ -271,11 +280,13 @@ def test_helper_prompt_save_persists_prompt_workspace_fields(tmp_path, monkeypat
         prompt_payload = asyncio.run(helper.handle("prompt.get", {"prompt": "v1"}))
         assert prompt_payload["prompt"]["purpose"] == "Support refund requests."
         assert "improved" in prompt_payload["prompt"]["system_prompt"].lower()
+        assert prompt_payload["prompt"]["prompt_blocks"][0]["block_id"] == "refund-policy"
 
         prompt_brief_path = Path(saved["prompt"]["root"]) / "prompt.json"
         assert prompt_brief_path.exists()
         prompt_brief = json.loads(prompt_brief_path.read_text(encoding="utf-8"))
         assert prompt_brief["success_criteria"] == "Includes policy answer and asks for proof of purchase."
+        assert prompt_brief["prompt_blocks"][0]["title"] == "Refund Policy"
     finally:
         os.chdir(original_cwd)
 

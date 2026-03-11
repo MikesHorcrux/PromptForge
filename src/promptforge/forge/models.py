@@ -153,6 +153,9 @@ class BuilderAction(BaseModel):
     title: str
     details: str = ""
     files: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    used_research: bool = False
+    permission_mode: str = "proposal_only"
     created_at: str = Field(default_factory=utc_now_iso)
 
 

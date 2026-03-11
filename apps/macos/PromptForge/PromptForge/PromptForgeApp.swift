@@ -23,8 +23,32 @@ struct PromptForgeApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appModel)
-                .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandMenu("PromptForge") {
+                Button("Command Bar") {
+                    appModel.openCommandBar()
+                }
+                .keyboardShortcut("k", modifiers: [.command])
+
+                Divider()
+
+                Button("Quick Check") {
+                    appModel.runQuickBenchmark()
+                }
+                .disabled(appModel.selectedPrompt == nil)
+
+                Button("Run Suite") {
+                    appModel.runScenarioReview()
+                }
+                .disabled(appModel.selectedPrompt == nil || appModel.selectedSuite == nil)
+
+                Button("Save Workspace") {
+                    appModel.savePromptWorkspace()
+                }
+                .disabled(appModel.selectedPrompt == nil)
+            }
+        }
     }
 }

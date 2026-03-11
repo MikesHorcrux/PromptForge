@@ -19,6 +19,10 @@ struct ContentView: View {
             SettingsSheet()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $model.showCommandBar) {
+            CommandPaletteSheet()
+                .environmentObject(model)
+        }
     }
 
     private var onboardingView: some View {
@@ -34,6 +38,8 @@ struct ContentView: View {
             )
 
             VStack(alignment: .leading, spacing: 18) {
+                ForgieOnboardingCard()
+
                 Text("PromptForge")
                     .font(.system(size: 38, weight: .bold, design: .rounded))
                 Text("A native prompt studio for writing with an agent, testing behavior, and reviewing changes before you ship.")
@@ -114,6 +120,10 @@ struct ContentView: View {
                     model.showReview()
                 }
                 .disabled(model.reviews.isEmpty)
+
+                Button("Commands") {
+                    model.openCommandBar()
+                }
 
                 Button("Settings") {
                     model.openSettings()
@@ -245,11 +255,15 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     StudioHeaderCard()
                         .environmentObject(model)
+                    BuilderControlsCard()
+                        .environmentObject(model)
                     PromptCanvasCard()
                         .environmentObject(model)
                     PlaygroundCard()
                         .environmentObject(model)
                     BuilderActionsCard()
+                        .environmentObject(model)
+                    PromptDiffCard()
                         .environmentObject(model)
                 }
                 .padding(20)
@@ -424,11 +438,17 @@ private struct StudioHeaderCard: View {
     var body: some View {
         PanelCard(title: model.currentPromptName.isEmpty ? (model.selectedPrompt ?? "Prompt") : model.currentPromptName) {
             VStack(alignment: .leading, spacing: 10) {
-                Text(model.selectedPrompt ?? "")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                Text(model.promptDraft.purpose.isEmpty ? "Define what this prompt is for and how you will know it is working." : model.promptDraft.purpose)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(model.selectedPrompt ?? "")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                        Text(model.promptDraft.purpose.isEmpty ? "Define what this prompt is for and how you will know it is working." : model.promptDraft.purpose)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    ForgieStatusGlyph(active: model.isBusy)
+                }
                 HStack(spacing: 10) {
                     SoftBadge(label: "Provider", value: model.providerLine)
                     SoftBadge(label: "Session", value: model.sessionLine)
@@ -444,6 +464,44 @@ private struct StudioHeaderCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+}
+
+private struct BuilderControlsCard: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+    private let permissionModes = ["proposal_only", "auto_apply"]
+    private let researchPolicies = ["prompt_only", "allow_external"]
+
+    var body: some View {
+        PanelCard(title: "Builder Controls") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    LabeledField(label: "Agent Model", text: $model.promptDraft.builderAgentModel)
+                    LabeledRow(label: "Permission Mode") {
+                        Picker("Permission Mode", selection: $model.promptDraft.builderPermissionMode) {
+                            ForEach(permissionModes, id: \.self) { mode in
+                                Text(mode.replacingOccurrences(of: "_", with: " ")).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
+                LabeledRow(label: "Research Policy") {
+                    Picker("Research Policy", selection: $model.promptDraft.researchPolicy) {
+                        ForEach(researchPolicies, id: \.self) { policy in
+                            Text(policy.replacingOccurrences(of: "_", with: " ")).tag(policy)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Text("Effective tools")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                FlowWrap(items: model.effectiveBuilderTools)
             }
         }
     }
@@ -544,13 +602,9 @@ private struct PromptCanvasCard: View {
 
                 LabeledField(label: "Primary Scenario Suites", text: primarySuitesBinding)
 
-                HStack(spacing: 12) {
-                    LabeledField(label: "Agent Model", text: $model.promptDraft.builderAgentModel)
-                    LabeledField(label: "Permission Mode", text: $model.promptDraft.builderPermissionMode)
-                    LabeledField(label: "Research Policy", text: $model.promptDraft.researchPolicy)
-                }
-
                 LabeledTextEditor(label: "Release Notes", text: $model.promptDraft.releaseNotes, minHeight: 70, font: .system(.body, design: .default))
+                PromptBlocksCard()
+                    .environmentObject(model)
                 PromptTextEditorCard(title: "System Prompt", text: $model.promptDraft.systemPrompt)
                 PromptTextEditorCard(title: "User Template", text: $model.promptDraft.userTemplate)
 
@@ -654,14 +708,369 @@ private struct BuilderActionsCard: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            if !action.tools.isEmpty {
+                                FlowWrap(items: action.tools)
+                            }
                             if !action.files.isEmpty {
                                 Text(action.files.joined(separator: ", "))
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
+                            HStack(spacing: 8) {
+                                Text(action.permissionMode)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                if action.usedResearch {
+                                    Text("external research")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(emberAccent)
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private struct PromptBlocksCard: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+    private let blockTargets = ["system", "user", "shared"]
+
+    var body: some View {
+        PanelCard(title: "Prompt Blocks") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Reusable prompt fragments you can keep alongside the canvas and insert on demand.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Add Block") {
+                        model.addPromptBlock()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if model.promptDraft.promptBlocks.isEmpty {
+                    Text("No prompt blocks yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(model.promptDraft.promptBlocks.enumerated()), id: \.element.id) { index, block in
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                TextField("Block title", text: blockBinding(index: index, keyPath: \.title))
+                                    .textFieldStyle(.roundedBorder)
+                                Picker("Target", selection: blockBinding(index: index, keyPath: \.target)) {
+                                    ForEach(blockTargets, id: \.self) { target in
+                                        Text(target).tag(target)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                Toggle("Enabled", isOn: blockEnabledBinding(index: index))
+                                    .toggleStyle(.switch)
+                            }
+                            TextEditor(text: blockBinding(index: index, keyPath: \.body))
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 110)
+                                .padding(10)
+                                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+                            HStack(spacing: 10) {
+                                Button("Insert into Prompt") {
+                                    model.insertPromptBlock(block.blockID)
+                                }
+                                .buttonStyle(.bordered)
+                                Button("Remove") {
+                                    model.removePromptBlock(block.blockID)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                        .padding(12)
+                        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                }
+            }
+        }
+    }
+
+    private func blockBinding(index: Int, keyPath: WritableKeyPath<PromptBlockModel, String>) -> Binding<String> {
+        Binding(
+            get: {
+                guard model.promptDraft.promptBlocks.indices.contains(index) else { return "" }
+                return model.promptDraft.promptBlocks[index][keyPath: keyPath]
+            },
+            set: { newValue in
+                guard model.promptDraft.promptBlocks.indices.contains(index) else { return }
+                model.promptDraft.promptBlocks[index][keyPath: keyPath] = newValue
+            }
+        )
+    }
+
+    private func blockEnabledBinding(index: Int) -> Binding<Bool> {
+        Binding(
+            get: {
+                guard model.promptDraft.promptBlocks.indices.contains(index) else { return false }
+                return model.promptDraft.promptBlocks[index].enabled
+            },
+            set: { newValue in
+                guard model.promptDraft.promptBlocks.indices.contains(index) else { return }
+                model.promptDraft.promptBlocks[index].enabled = newValue
+            }
+        )
+    }
+}
+
+private struct PromptDiffCard: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+
+    var body: some View {
+        PanelCard(title: "Draft Diff") {
+            if model.promptDiffPreview.isEmpty {
+                Text("No draft changes to compare against the last saved workspace.")
+                    .foregroundStyle(.secondary)
+            } else {
+                LabeledReadOnlyCode(label: "Inline Diff", text: model.promptDiffPreview)
+            }
+        }
+    }
+}
+
+private struct CommandPaletteSheet: View {
+    @EnvironmentObject private var model: PromptForgeAppModel
+    @State private var query: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Command Bar")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Spacer()
+                Button("Close") {
+                    model.closeCommandBar()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            TextField("Search commands", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    if let first = filteredCommands.first(where: \.isEnabled) {
+                        run(first)
+                    }
+                }
+
+            List(filteredCommands) { command in
+                Button {
+                    run(command)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(command.title)
+                            .font(.body.weight(.semibold))
+                        Text(command.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!command.isEnabled)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 560, minHeight: 420)
+        .background(parchmentTint.opacity(0.65))
+    }
+
+    private var filteredCommands: [CommandPaletteItem] {
+        let all = commandItems()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return all
+        }
+        return all.filter {
+            $0.title.localizedCaseInsensitiveContains(trimmed) ||
+            $0.subtitle.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
+    private func commandItems() -> [CommandPaletteItem] {
+        var commands: [CommandPaletteItem] = [
+            .init(id: "settings", title: "Open Settings", subtitle: "Project, models, auth, and Forgie defaults", isEnabled: true),
+            .init(id: "new_prompt", title: "New Prompt", subtitle: "Create a new prompt pack", isEnabled: true),
+            .init(id: "new_suite", title: "New Suite", subtitle: "Create a new scenario suite", isEnabled: model.selectedPrompt != nil),
+            .init(id: "save_workspace", title: "Save Workspace", subtitle: "Persist prompt metadata and prompt files", isEnabled: model.selectedPrompt != nil),
+            .init(id: "quick_check", title: "Quick Check", subtitle: "Run the benchmark on the active prompt", isEnabled: model.selectedPrompt != nil),
+            .init(id: "run_suite", title: "Run Suite", subtitle: "Run the selected scenario suite and open review", isEnabled: model.selectedPrompt != nil && model.selectedSuite != nil),
+            .init(id: "playground", title: "Run Playground", subtitle: "Generate samples for the current scratch input", isEnabled: model.selectedPrompt != nil),
+            .init(id: "studio", title: "Show Studio", subtitle: "Return to prompt authoring", isEnabled: model.selectedPrompt != nil),
+            .init(id: "tests", title: "Show Tests", subtitle: "Open scenario authoring", isEnabled: model.selectedPrompt != nil),
+            .init(id: "review", title: "Show Review", subtitle: "Inspect regressions and decisions", isEnabled: !model.reviews.isEmpty),
+        ]
+        commands.append(contentsOf: model.prompts.map { prompt in
+            CommandPaletteItem(
+                id: "open:\(prompt.version)",
+                title: "Open \(prompt.name)",
+                subtitle: prompt.version,
+                isEnabled: true
+            )
+        })
+        return commands
+    }
+
+    private func run(_ command: CommandPaletteItem) {
+        guard command.isEnabled else { return }
+        switch command.id {
+        case "settings":
+            model.openSettings()
+        case "new_prompt":
+            model.createPromptShortcut()
+        case "new_suite":
+            model.createScenarioShortcut()
+        case "save_workspace":
+            model.savePromptWorkspace()
+        case "quick_check":
+            model.runQuickBenchmark()
+        case "run_suite":
+            model.runScenarioReview()
+        case "playground":
+            model.runPlayground()
+        case "studio":
+            model.showStudio()
+        case "tests":
+            model.showTests()
+        case "review":
+            model.showReview()
+        default:
+            if command.id.hasPrefix("open:") {
+                let prompt = String(command.id.dropFirst("open:".count))
+                Task {
+                    await model.openPrompt(prompt, announce: true)
+                }
+            }
+        }
+        model.closeCommandBar()
+    }
+}
+
+private struct CommandPaletteItem: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let isEnabled: Bool
+}
+
+private struct ForgieOnboardingCard: View {
+    var body: some View {
+        HStack(spacing: 18) {
+            ForgieMark(size: 120, active: true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Forgie")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Text("Your builder agent. Forgie lights up prompt edits, scenario checks, and review decisions without taking over the workspace.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 420, alignment: .leading)
+            }
+        }
+        .padding(18)
+        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 24))
+    }
+}
+
+private struct ForgieStatusGlyph: View {
+    let active: Bool
+
+    var body: some View {
+        ForgieMark(size: 56, active: active)
+    }
+}
+
+private struct ForgieMark: View {
+    let size: CGFloat
+    let active: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.98, green: 0.72, blue: 0.34), Color(red: 0.86, green: 0.42, blue: 0.14)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            EarShape()
+                .fill(Color(red: 0.89, green: 0.46, blue: 0.16))
+                .frame(width: size * 0.26, height: size * 0.26)
+                .offset(x: -size * 0.2, y: -size * 0.42)
+            EarShape()
+                .fill(Color(red: 0.89, green: 0.46, blue: 0.16))
+                .frame(width: size * 0.26, height: size * 0.26)
+                .scaleEffect(x: -1, y: 1)
+                .offset(x: size * 0.2, y: -size * 0.42)
+            Circle()
+                .fill(Color.white.opacity(0.92))
+                .frame(width: size * 0.62, height: size * 0.46)
+                .offset(y: size * 0.16)
+            HStack(spacing: size * 0.18) {
+                Circle().fill(.black.opacity(0.82)).frame(width: size * 0.08, height: size * 0.08)
+                Circle().fill(.black.opacity(0.82)).frame(width: size * 0.08, height: size * 0.08)
+            }
+            .offset(y: size * 0.03)
+            Circle()
+                .fill(Color.black.opacity(0.82))
+                .frame(width: size * 0.07, height: size * 0.05)
+                .offset(y: size * 0.16)
+            LanternGlyph(active: active)
+                .frame(width: size * 0.32, height: size * 0.42)
+                .offset(x: size * 0.34, y: size * 0.18)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: emberAccent.opacity(active ? 0.35 : 0.12), radius: active ? 18 : 8)
+    }
+}
+
+private struct LanternGlyph: View {
+    let active: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.black.opacity(0.38), lineWidth: 2)
+            RoundedRectangle(cornerRadius: 8)
+                .fill(active ? emberAccent.opacity(0.22) : Color.white.opacity(0.24))
+                .padding(4)
+            Circle()
+                .fill(active ? Color(red: 1.0, green: 0.83, blue: 0.36) : Color.white.opacity(0.5))
+                .frame(width: 14, height: 14)
+                .shadow(color: emberAccent.opacity(active ? 0.45 : 0.12), radius: active ? 10 : 3)
+        }
+    }
+}
+
+private struct EarShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct FlowWrap: View {
+    let items: [String]
+    private let columns = [GridItem(.adaptive(minimum: 92), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+            ForEach(items, id: \.self) { item in
+                Text(item)
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.white.opacity(0.45), in: Capsule())
             }
         }
     }
@@ -1085,6 +1494,8 @@ private struct SettingsSheet: View {
     @EnvironmentObject private var model: PromptForgeAppModel
 
     private let providers = ["openai", "openrouter", "codex"]
+    private let permissionModes = ["proposal_only", "auto_apply"]
+    private let researchPolicies = ["prompt_only", "allow_external"]
 
     var body: some View {
         NavigationStack {
@@ -1171,8 +1582,18 @@ private struct SettingsSheet: View {
 
     private var builderSection: some View {
         SettingsCard(title: model.isOnboarding ? "3. Forgie" : "Forgie") {
-            TextField("Permission mode", text: $model.settingsDraft.builderPermissionMode)
-            TextField("Research policy", text: $model.settingsDraft.builderResearchPolicy)
+            Picker("Permission mode", selection: $model.settingsDraft.builderPermissionMode) {
+                ForEach(permissionModes, id: \.self) { mode in
+                    Text(mode.replacingOccurrences(of: "_", with: " ")).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            Picker("Research policy", selection: $model.settingsDraft.builderResearchPolicy) {
+                ForEach(researchPolicies, id: \.self) { policy in
+                    Text(policy.replacingOccurrences(of: "_", with: " ")).tag(policy)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 

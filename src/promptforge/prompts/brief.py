@@ -6,6 +6,14 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 
+class PromptBlock(BaseModel):
+    block_id: str
+    title: str
+    body: str
+    target: str = "system"
+    enabled: bool = True
+
+
 PROMPT_BRIEF_FILE = "prompt.json"
 
 
@@ -22,6 +30,7 @@ class PromptBrief(BaseModel):
     builder_agent_model: str = "gpt-5-mini"
     builder_permission_mode: str = "proposal_only"
     research_policy: str = "prompt_only"
+    prompt_blocks: list[PromptBlock] = Field(default_factory=list)
 
 
 def default_prompt_brief(*, description: str = "") -> PromptBrief:

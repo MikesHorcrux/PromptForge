@@ -106,6 +106,7 @@ def test_workspace_service_lists_creates_and_tracks_sessions(tmp_path, monkeypat
 
     visible = workspace.load_visible_prompt("v1")
     assert "You are" in visible.system_prompt
+    assert visible.prompt_blocks == []
 
     session = asyncio.run(workspace.ensure_session("v1"))
     assert session.manifest.session_id.startswith("forge_")
@@ -256,3 +257,6 @@ def test_workspace_supports_scenarios_playground_and_review_decisions(tmp_path, 
 
     actions = asyncio.run(workspace.list_builder_actions("v1"))
     assert actions
+    assert actions[-1].kind == "decision"
+    assert actions[-1].permission_mode == "proposal_only"
+    assert "playground" in {tool for action in actions for tool in action.tools}

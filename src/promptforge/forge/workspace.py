@@ -20,7 +20,7 @@ from promptforge.forge.models import (
 )
 from promptforge.forge.service import ForgeSession
 from promptforge.project import PromptForgeProject
-from promptforge.prompts.brief import PromptBrief, ensure_prompt_brief, save_prompt_brief
+from promptforge.prompts.brief import PromptBlock, PromptBrief, ensure_prompt_brief, save_prompt_brief
 from promptforge.prompts.loader import load_prompt_pack
 from promptforge.runtime.gateway import build_gateway
 from promptforge.scenarios.models import ScenarioSuite
@@ -53,6 +53,7 @@ class PromptView(BaseModel):
     builder_agent_model: str = "gpt-5-mini"
     builder_permission_mode: str = "proposal_only"
     research_policy: str = "prompt_only"
+    prompt_blocks: list[PromptBlock] = Field(default_factory=list)
     files: list[str] = Field(default_factory=list)
     session_id: str | None = None
 
@@ -213,6 +214,7 @@ class ForgeWorkspaceService:
                         builder_agent_model=brief.builder_agent_model,
                         builder_permission_mode=brief.builder_permission_mode,
                         research_policy=brief.research_policy,
+                        prompt_blocks=brief.prompt_blocks,
                         files=self._prompt_files(prompt_pack.root),
                         session_id=session_id,
                     )
@@ -240,6 +242,7 @@ class ForgeWorkspaceService:
             builder_agent_model=brief.builder_agent_model,
             builder_permission_mode=brief.builder_permission_mode,
             research_policy=brief.research_policy,
+            prompt_blocks=brief.prompt_blocks,
             files=self._prompt_files(prompt_pack.root),
             session_id=None,
         )
@@ -343,6 +346,7 @@ class ForgeWorkspaceService:
         builder_agent_model: str = "gpt-5-mini",
         builder_permission_mode: str = "proposal_only",
         research_policy: str = "prompt_only",
+        prompt_blocks: list[dict[str, object]] | None = None,
     ):
         session = await self.ensure_session(prompt_ref)
         self.set_active_prompt(prompt_ref)
@@ -358,6 +362,7 @@ class ForgeWorkspaceService:
             builder_agent_model=builder_agent_model.strip() or session.manifest.agent_model,
             builder_permission_mode=builder_permission_mode.strip() or "proposal_only",
             research_policy=research_policy.strip() or "prompt_only",
+            prompt_blocks=[PromptBlock.model_validate(block) for block in (prompt_blocks or [])],
         )
         return await session.edit_prompt_files(
             updates={
