@@ -370,35 +370,6 @@ class PromptForgeHelper:
             prompt = self._resolve_prompt_ref(params)
             session = await self.workspace.ensure_session(prompt)
             return {"revisions": [revision.model_dump(mode="json") for revision in session.history.revisions]}
-        if method == "benchmarks.history":
-            prompt = self._resolve_prompt_ref(params)
-            session = self.workspace.current_session(prompt)
-            if session is None:
-                return {"history": [], "trend": []}
-            entries: list[dict[str, Any]] = []
-            for revision in session.history.revisions:
-                benchmark = revision.benchmark
-                full_evaluation = revision.full_evaluation
-                entries.append(
-                    {
-                        "revision_id": revision.revision_id,
-                        "created_at": revision.created_at,
-                        "source": revision.source,
-                        "note": revision.note,
-                        "score": benchmark.mean_effective_score if benchmark else None,
-                        "score_delta_vs_baseline": revision.benchmark_vs_baseline.mean_score_delta if revision.benchmark_vs_baseline else None,
-                        "pass_rate": benchmark.pass_rate if benchmark else None,
-                        "hard_fail_rate": benchmark.mean_hard_fail_rate if benchmark else None,
-                        "full_score": full_evaluation.mean_effective_score if full_evaluation else None,
-                    }
-                )
-            return {
-                "history": entries,
-                "trend": [
-                    {"revision_id": revision_id, "score": score}
-                    for revision_id, score in session.score_trend_points()
-                ],
-            }
         if method == "revisions.restore":
             prompt = self._resolve_prompt_ref(params)
             revision = await self.workspace.restore_revision(prompt, str(params["revision_id"]))

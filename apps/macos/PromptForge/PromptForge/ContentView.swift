@@ -1725,60 +1725,6 @@ private struct StudioChatPane: View {
     }
 }
 
-private struct PromptCanvasCard: View {
-    @EnvironmentObject private var model: PromptForgeAppModel
-
-    var body: some View {
-        PanelCard(title: "Prompt Canvas") {
-            VStack(alignment: .leading, spacing: 16) {
-                LabeledTextEditor(label: "Purpose", text: $model.promptDraft.purpose, minHeight: 80, font: .system(.body, design: .default))
-                LabeledTextEditor(label: "Expected Behavior", text: $model.promptDraft.expectedBehavior, minHeight: 90, font: .system(.body, design: .default))
-                LabeledTextEditor(label: "Success Criteria", text: $model.promptDraft.successCriteria, minHeight: 90, font: .system(.body, design: .default))
-
-                HStack(spacing: 12) {
-                    LabeledField(label: "Baseline Prompt", text: $model.promptDraft.baselinePromptRef)
-                    LabeledField(label: "Owner", text: $model.promptDraft.owner)
-                    LabeledField(label: "Audience", text: $model.promptDraft.audience)
-                }
-
-                LabeledField(label: "Primary Scenario Suites", text: primarySuitesBinding)
-
-                LabeledTextEditor(label: "Release Notes", text: $model.promptDraft.releaseNotes, minHeight: 70, font: .system(.body, design: .default))
-                PromptBlocksCard()
-                    .environmentObject(model)
-                PromptTextEditorCard(title: "System Prompt", text: $model.promptDraft.systemPrompt)
-                PromptTextEditorCard(title: "User Template", text: $model.promptDraft.userTemplate)
-
-                HStack(spacing: 10) {
-                    Button("Save Workspace") {
-                        model.savePromptWorkspace()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Quick Check") {
-                        model.runQuickBenchmark()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-    }
-
-    private var primarySuitesBinding: Binding<String> {
-        Binding(
-            get: {
-                model.promptDraft.primaryScenarioSuites.joined(separator: ", ")
-            },
-            set: { newValue in
-                model.promptDraft.primaryScenarioSuites = newValue
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-            }
-        )
-    }
-}
-
 private struct PlaygroundCard: View {
     @EnvironmentObject private var model: PromptForgeAppModel
 
@@ -1875,101 +1821,6 @@ private struct BuilderActionsCard: View {
     }
 }
 
-private struct PromptBlocksCard: View {
-    @EnvironmentObject private var model: PromptForgeAppModel
-    private let blockTargets = ["system", "user", "shared"]
-
-    var body: some View {
-        PanelCard(title: "Prompt Blocks") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Reusable prompt fragments you can keep alongside the canvas and insert on demand.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Add Block") {
-                        model.addPromptBlock()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if model.promptDraft.promptBlocks.isEmpty {
-                    Text("No prompt blocks yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(model.promptDraft.promptBlocks.enumerated()), id: \.element.id) { index, block in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                TextField("Block title", text: blockBinding(index: index, keyPath: \.title))
-                                    .textFieldStyle(.roundedBorder)
-                                Picker("Target", selection: blockBinding(index: index, keyPath: \.target)) {
-                                    ForEach(blockTargets, id: \.self) { target in
-                                        Text(target).tag(target)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                Toggle("Enabled", isOn: blockEnabledBinding(index: index))
-                                    .toggleStyle(.switch)
-                            }
-                            TextEditor(text: blockBinding(index: index, keyPath: \.body))
-                                .font(.system(.body, design: .monospaced))
-                                .frame(minHeight: 110)
-                                .padding(10)
-                                .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(borderColor, lineWidth: 1)
-                                )
-                            HStack(spacing: 10) {
-                                Button("Insert into Prompt") {
-                                    model.insertPromptBlock(block.blockID)
-                                }
-                                .buttonStyle(.bordered)
-                                Button("Remove") {
-                                    model.removePromptBlock(block.blockID)
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-                        .padding(12)
-                        .background(panelBackground, in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(borderColor, lineWidth: 1)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private func blockBinding(index: Int, keyPath: WritableKeyPath<PromptBlockModel, String>) -> Binding<String> {
-        Binding(
-            get: {
-                guard model.promptDraft.promptBlocks.indices.contains(index) else { return "" }
-                return model.promptDraft.promptBlocks[index][keyPath: keyPath]
-            },
-            set: { newValue in
-                guard model.promptDraft.promptBlocks.indices.contains(index) else { return }
-                model.promptDraft.promptBlocks[index][keyPath: keyPath] = newValue
-            }
-        )
-    }
-
-    private func blockEnabledBinding(index: Int) -> Binding<Bool> {
-        Binding(
-            get: {
-                guard model.promptDraft.promptBlocks.indices.contains(index) else { return false }
-                return model.promptDraft.promptBlocks[index].enabled
-            },
-            set: { newValue in
-                guard model.promptDraft.promptBlocks.indices.contains(index) else { return }
-                model.promptDraft.promptBlocks[index].enabled = newValue
-            }
-        )
-    }
-}
-
 private struct PromptDiffCard: View {
     @EnvironmentObject private var model: PromptForgeAppModel
 
@@ -2051,9 +1902,6 @@ private struct CommandPaletteSheet: View {
             .init(id: "quick_check", title: "Quick Check", subtitle: "Run the benchmark on the active prompt", isEnabled: model.selectedPrompt != nil),
             .init(id: "run_suite", title: "Run Suite", subtitle: "Run the selected scenario suite and open review", isEnabled: model.selectedPrompt != nil && model.selectedSuite != nil),
             .init(id: "playground", title: "Run Playground", subtitle: "Generate samples for the current scratch input", isEnabled: model.selectedPrompt != nil),
-            .init(id: "studio", title: "Show Studio", subtitle: "Return to prompt authoring", isEnabled: model.selectedPrompt != nil),
-            .init(id: "tests", title: "Show Tests", subtitle: "Open scenario authoring", isEnabled: model.selectedPrompt != nil),
-            .init(id: "review", title: "Show Review", subtitle: "Inspect regressions and decisions", isEnabled: !model.reviews.isEmpty),
         ]
         commands.append(contentsOf: model.prompts.map { prompt in
             CommandPaletteItem(
@@ -2083,12 +1931,6 @@ private struct CommandPaletteSheet: View {
             model.runScenarioReview()
         case "playground":
             model.runPlayground()
-        case "studio":
-            model.showStudio()
-        case "tests":
-            model.showTests()
-        case "review":
-            model.showReview()
         default:
             if command.id.hasPrefix("open:") {
                 let prompt = String(command.id.dropFirst("open:".count))
@@ -3052,47 +2894,6 @@ private struct LabeledField: View {
                     RoundedRectangle(cornerRadius: 10)
                         .stroke(borderColor, lineWidth: 1)
                 )
-        }
-    }
-}
-
-private struct PromptTextEditorCard: View {
-    let title: String
-    @Binding var text: String
-    var diffText: String = ""
-
-    var body: some View {
-        PanelCard(title: title) {
-            VStack(alignment: .leading, spacing: 12) {
-                TextEditor(text: $text)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 320)
-                    .padding(10)
-                    .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(borderColor, lineWidth: 1)
-                    )
-
-                if !diffText.isEmpty {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Diff")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(diffText)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(canvasBackground, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(borderColor, lineWidth: 1)
-                            )
-                    }
-                }
-            }
         }
     }
 }

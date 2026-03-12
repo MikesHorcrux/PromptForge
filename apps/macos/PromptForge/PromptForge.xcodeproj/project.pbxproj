@@ -14,19 +14,11 @@
 			remoteGlobalIDString = 7FB8CFD12F60B845004B94D5;
 			remoteInfo = PromptForge;
 		};
-		7FB8CFEC2F60B847004B94D5 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 7FB8CFCA2F60B845004B94D5 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 7FB8CFD12F60B845004B94D5;
-			remoteInfo = PromptForge;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		7FB8CFD22F60B845004B94D5 /* PromptForge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PromptForge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7FB8CFE12F60B847004B94D5 /* PromptForgeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PromptForgeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		7FB8CFEB2F60B847004B94D5 /* PromptForgeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PromptForgeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,11 +30,6 @@
 		7FB8CFE42F60B847004B94D5 /* PromptForgeTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PromptForgeTests;
-			sourceTree = "<group>";
-		};
-		7FB8CFEE2F60B847004B94D5 /* PromptForgeUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PromptForgeUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -62,13 +49,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		7FB8CFE82F60B847004B94D5 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -77,7 +57,6 @@
 			children = (
 				7FB8CFD42F60B845004B94D5 /* PromptForge */,
 				7FB8CFE42F60B847004B94D5 /* PromptForgeTests */,
-				7FB8CFEE2F60B847004B94D5 /* PromptForgeUITests */,
 				7FB8CFD32F60B845004B94D5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -87,7 +66,6 @@
 			children = (
 				7FB8CFD22F60B845004B94D5 /* PromptForge.app */,
 				7FB8CFE12F60B847004B94D5 /* PromptForgeTests.xctest */,
-				7FB8CFEB2F60B847004B94D5 /* PromptForgeUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -141,29 +119,6 @@
 			productReference = 7FB8CFE12F60B847004B94D5 /* PromptForgeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		7FB8CFEA2F60B847004B94D5 /* PromptForgeUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 7FB8CFFB2F60B847004B94D5 /* Build configuration list for PBXNativeTarget "PromptForgeUITests" */;
-			buildPhases = (
-				7FB8CFE72F60B847004B94D5 /* Sources */,
-				7FB8CFE82F60B847004B94D5 /* Frameworks */,
-				7FB8CFE92F60B847004B94D5 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				7FB8CFED2F60B847004B94D5 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				7FB8CFEE2F60B847004B94D5 /* PromptForgeUITests */,
-			);
-			name = PromptForgeUITests;
-			packageProductDependencies = (
-			);
-			productName = PromptForgeUITests;
-			productReference = 7FB8CFEB2F60B847004B94D5 /* PromptForgeUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -178,10 +133,6 @@
 						CreatedOnToolsVersion = 26.3;
 					};
 					7FB8CFE02F60B847004B94D5 = {
-						CreatedOnToolsVersion = 26.3;
-						TestTargetID = 7FB8CFD12F60B845004B94D5;
-					};
-					7FB8CFEA2F60B847004B94D5 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = 7FB8CFD12F60B845004B94D5;
 					};
@@ -203,7 +154,6 @@
 			targets = (
 				7FB8CFD12F60B845004B94D5 /* PromptForge */,
 				7FB8CFE02F60B847004B94D5 /* PromptForgeTests */,
-				7FB8CFEA2F60B847004B94D5 /* PromptForgeUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -217,13 +167,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7FB8CFDF2F60B847004B94D5 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		7FB8CFE92F60B847004B94D5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -275,13 +218,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		7FB8CFE72F60B847004B94D5 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -289,11 +225,6 @@
 			isa = PBXTargetDependency;
 			target = 7FB8CFD12F60B845004B94D5 /* PromptForge */;
 			targetProxy = 7FB8CFE22F60B847004B94D5 /* PBXContainerItemProxy */;
-		};
-		7FB8CFED2F60B847004B94D5 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 7FB8CFD12F60B845004B94D5 /* PromptForge */;
-			targetProxy = 7FB8CFEC2F60B847004B94D5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -526,44 +457,6 @@
 			};
 			name = Release;
 		};
-		7FB8CFFC2F60B847004B94D5 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5V5PZUN2HG;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lunarmothstudios.PromptForgeUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = PromptForge;
-			};
-			name = Debug;
-		};
-		7FB8CFFD2F60B847004B94D5 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5V5PZUN2HG;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lunarmothstudios.PromptForgeUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = PromptForge;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -590,15 +483,6 @@
 			buildConfigurations = (
 				7FB8CFF92F60B847004B94D5 /* Debug */,
 				7FB8CFFA2F60B847004B94D5 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		7FB8CFFB2F60B847004B94D5 /* Build configuration list for PBXNativeTarget "PromptForgeUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				7FB8CFFC2F60B847004B94D5 /* Debug */,
-				7FB8CFFD2F60B847004B94D5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

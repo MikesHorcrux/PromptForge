@@ -1,0 +1,6 @@
+apiVersion: 1
+version: draft-1773272066
+name: draft-1773272066 prompt
+description: New prompt pack created from the forge workspace.
+output_format: markdown
+required_sections: []

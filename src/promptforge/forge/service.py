@@ -934,28 +934,6 @@ class ForgeSession:
         )
         return destination
 
-    def history_rows(self) -> list[tuple[str, str, str, str, str]]:
-        rows: list[tuple[str, str, str, str, str]] = []
-        for revision in self.history.revisions:
-            score = "--"
-            delta = "--"
-            full = "--"
-            if revision.benchmark:
-                score = f"{revision.benchmark.mean_effective_score:.2f}"
-            if revision.benchmark_vs_baseline:
-                delta = f"{revision.benchmark_vs_baseline.mean_score_delta:+.2f}"
-            if revision.full_evaluation:
-                full = f"{revision.full_evaluation.mean_effective_score:.2f}"
-            rows.append((revision.revision_id, revision.source, score, delta, full))
-        return rows
-
-    def score_trend_points(self) -> list[tuple[str, float]]:
-        points: list[tuple[str, float]] = []
-        for revision in self.history.revisions:
-            if revision.benchmark:
-                points.append((revision.revision_id, revision.benchmark.mean_effective_score))
-        return points
-
     def previous_revision_id(self) -> str | None:
         if len(self.history.revisions) < 2:
             return None

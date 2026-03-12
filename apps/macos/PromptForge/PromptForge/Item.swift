@@ -376,27 +376,6 @@ struct DecisionRecordModel: Identifiable, Equatable {
     var id: String { decisionID }
 }
 
-struct BenchmarkHistoryEntry: Identifiable, Equatable {
-    let revisionID: String
-    let createdAt: String
-    let source: String
-    let note: String
-    let score: Double?
-    let scoreDeltaVsBaseline: Double?
-    let passRate: Double?
-    let hardFailRate: Double?
-    let fullScore: Double?
-
-    var id: String { revisionID }
-}
-
-struct BenchmarkTrendPoint: Identifiable, Equatable {
-    let revisionID: String
-    let score: Double
-
-    var id: String { revisionID }
-}
-
 enum KeychainSecretStore {
     private static let service = "com.lunarmothstudios.PromptForge"
     private static let secretKeys = ["OPENAI_API_KEY", "OPENROUTER_API_KEY"]
@@ -766,8 +745,6 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var authLine: String = "auth unknown"
     @Published var sessionLine: String = "session --"
     @Published var latestScoreLine: String = "--"
-    @Published var latestDeltaLine: String = "--"
-    @Published var statusSubtitle: String = "Open a project to begin."
     @Published var isBusy: Bool = false
     @Published var busyLabel: String = ""
     @Published var launchError: String?
@@ -780,8 +757,6 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var settingsNotice: String?
     @Published var settingsError: String?
     @Published var connectionStatuses: [ProviderConnectionStatus] = []
-    @Published var benchmarkHistory: [BenchmarkHistoryEntry] = []
-    @Published var benchmarkTrend: [BenchmarkTrendPoint] = []
     @Published var promptSaveNotice: String?
     @Published var scenarioSuites: [ScenarioSuiteModel] = []
     @Published var scenarioDraft: ScenarioSuiteModel?
@@ -999,18 +974,6 @@ final class PromptForgeAppModel: ObservableObject {
         }
     }
 
-    func showStudio() {
-        selectedWorkspaceMode = .studio
-    }
-
-    func showTests() {
-        selectedWorkspaceMode = .tests
-    }
-
-    func showReview() {
-        selectedWorkspaceMode = .review
-    }
-
     func openCommandBar() {
         showCommandBar = true
     }
@@ -1028,12 +991,6 @@ final class PromptForgeAppModel: ObservableObject {
     func runQuickBenchmark() {
         Task {
             await runHelperMethod("bench.run_quick")
-        }
-    }
-
-    func runFullEvaluation() {
-        Task {
-            await runHelperMethod("eval.run_full")
         }
     }
 
@@ -1884,8 +1841,6 @@ final class PromptForgeAppModel: ObservableObject {
         weakCases = []
         failureCases = []
         pendingProposal = nil
-        benchmarkHistory = []
-        benchmarkTrend = []
         scenarioSuites = []
         scenarioDraft = nil
         builderActions = []
@@ -1895,8 +1850,6 @@ final class PromptForgeAppModel: ObservableObject {
         promptSaveNotice = nil
         sessionLine = "session --"
         latestScoreLine = "--"
-        latestDeltaLine = "--"
-        statusSubtitle = "Ready"
     }
 
     func refreshConnectionStatuses() {
@@ -1980,47 +1933,6 @@ final class PromptForgeAppModel: ObservableObject {
             let providerDetail = provider["detail"] as? String ?? ""
             authLine = providerDetail
             applyConnectionPayload(auth)
-        }
-        statusSubtitle = metadata["full_evaluation_dataset"] as? String ?? "Ready"
-    }
-
-    private func refreshBenchmarkHistory() async throws {
-        guard let helper, let prompt = selectedPrompt else {
-            benchmarkHistory = []
-            benchmarkTrend = []
-            return
-        }
-        let payload = try await helper.send(method: "benchmarks.history", params: ["prompt": prompt])
-        let historyPayloads = payload["history"] as? [[String: Any]] ?? []
-        let trendPayloads = payload["trend"] as? [[String: Any]] ?? []
-        benchmarkHistory = historyPayloads.compactMap { item in
-            guard
-                let revisionID = item["revision_id"] as? String,
-                let createdAt = item["created_at"] as? String,
-                let source = item["source"] as? String
-            else {
-                return nil
-            }
-            return BenchmarkHistoryEntry(
-                revisionID: revisionID,
-                createdAt: createdAt,
-                source: source,
-                note: item["note"] as? String ?? "",
-                score: item["score"] as? Double,
-                scoreDeltaVsBaseline: item["score_delta_vs_baseline"] as? Double,
-                passRate: item["pass_rate"] as? Double,
-                hardFailRate: item["hard_fail_rate"] as? Double,
-                fullScore: item["full_score"] as? Double
-            )
-        }
-        benchmarkTrend = trendPayloads.compactMap { item in
-            guard
-                let revisionID = item["revision_id"] as? String,
-                let score = item["score"] as? Double
-            else {
-                return nil
-            }
-            return BenchmarkTrendPoint(revisionID: revisionID, score: score)
         }
     }
 
@@ -2197,32 +2109,6 @@ final class PromptForgeAppModel: ObservableObject {
     func saveScenarioSuite() {
         Task {
             await persistScenarioSuite()
-        }
-    }
-
-    func addPromptBlock() {
-        let block = PromptBlockModel(
-            blockID: "block-\(Int(Date().timeIntervalSince1970))",
-            title: "New Block",
-            body: "",
-            target: "system",
-            enabled: true
-        )
-        promptDraft.promptBlocks.append(block)
-    }
-
-    func removePromptBlock(_ blockID: String) {
-        promptDraft.promptBlocks.removeAll { $0.blockID == blockID }
-    }
-
-    func insertPromptBlock(_ blockID: String) {
-        guard let block = promptDraft.promptBlocks.first(where: { $0.blockID == blockID }) else { return }
-        let normalizedBody = block.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedBody.isEmpty else { return }
-        if block.target == "user" {
-            promptDraft.userTemplate = promptDraft.userTemplate.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + normalizedBody + "\n"
-        } else {
-            promptDraft.systemPrompt = promptDraft.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + normalizedBody + "\n"
         }
     }
 
@@ -2441,9 +2327,6 @@ final class PromptForgeAppModel: ObservableObject {
         savedPromptDraft = promptDraft
         promptFiles = payload["files"] as? [String] ?? []
         promptSaveNotice = nil
-        Task {
-            try? await refreshBenchmarkHistory()
-        }
     }
 
     private func applyInsightsPayload(_ result: [String: Any]) {
@@ -2459,15 +2342,6 @@ final class PromptForgeAppModel: ObservableObject {
                 return (key, value)
             }
             latestScoreLine = benchmarkRows.first(where: { $0.0 == "Latest score" })?.1 ?? latestScoreLine
-        }
-        if let diffRows = insightObject["diff_rows"] as? [[Any]], !diffRows.isEmpty {
-            let parsed = diffRows.compactMap { row -> (String, String)? in
-                guard row.count >= 2, let key = row[0] as? String, let value = row[1] as? String else {
-                    return nil
-                }
-                return (key, value)
-            }
-            latestDeltaLine = parsed.first(where: { $0.0 == "Score delta" })?.1 ?? latestDeltaLine
         }
         weakCases = parseCases(insightObject["weak_cases"] as? [[String: Any]] ?? [])
         failureCases = parseCases(insightObject["failures"] as? [[String: Any]] ?? [])
@@ -2487,9 +2361,6 @@ final class PromptForgeAppModel: ObservableObject {
         }
         if result["insights"] != nil {
             applyInsightsPayload(result)
-        }
-        Task {
-            try? await refreshBenchmarkHistory()
         }
     }
 

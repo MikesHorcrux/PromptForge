@@ -137,11 +137,6 @@ def test_helper_exposes_project_prompt_and_benchmark_contract(tmp_path, monkeypa
         assert agent_benchmark["chat"]["kind"] == "benchmark"
         assert agent_benchmark["revision"]["benchmark"] is not None
 
-        history = asyncio.run(helper.handle("benchmarks.history", {"prompt": "v1"}))
-        assert history["history"]
-        assert history["trend"]
-        assert history["history"][-1]["score"] is not None
-
         events = asyncio.run(helper.handle("events.subscribe", {"after": 0, "timeout_seconds": 0.01}))
         assert events["subscribed"] is True
         assert any(event["type"] == "request.started" and event["payload"]["method"] == "prompts.list" for event in events["events"])
@@ -250,9 +245,6 @@ def test_helper_prompt_views_do_not_force_session_creation(tmp_path, monkeypatch
         insights = asyncio.run(helper.handle("insights.latest", {"prompt": "v1"}))
         assert insights["insights"]["session_id"] is None
 
-        history = asyncio.run(helper.handle("benchmarks.history", {"prompt": "v1"}))
-        assert history["history"] == []
-        assert history["trend"] == []
     finally:
         os.chdir(original_cwd)
 
