@@ -5,8 +5,6 @@ import asyncio
 import json
 import os
 import signal
-import shutil
-import subprocess
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +15,11 @@ from promptforge.core.models import RunConfig, ScoringConfig
 from promptforge.forge.workspace import ForgeWorkspaceService
 from promptforge.project import PromptForgeProject
 from promptforge.prompts.loader import load_prompt_pack
+from promptforge.runtime.codex_cli import (
+    codex_begin_device_auth,
+    codex_login_status,
+    codex_login_with_api_key,
+)
 from promptforge.scenarios.models import ScenarioSuite
 
 
@@ -83,21 +86,7 @@ def _provider_auth_status(provider: str) -> tuple[bool, str]:
         return bool(settings.openrouter_api_key), (
             "OPENROUTER_API_KEY is set" if settings.openrouter_api_key else "OPENROUTER_API_KEY is missing"
         )
-    codex_path = settings.codex_bin
-    if shutil.which(codex_path) is None:
-        return False, f"Codex CLI not found: {codex_path}"
-    try:
-        completed = subprocess.run(
-            [codex_path, "login", "status"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except Exception as exc:
-        return False, f"Codex status unavailable: {exc}"
-    detail = completed.stdout.strip() or completed.stderr.strip() or f"Codex CLI found at {codex_path}"
-    return completed.returncode == 0, detail
+    return codex_login_status(settings.codex_bin)
 
 
 class PromptForgeHelper:
@@ -158,6 +147,24 @@ class PromptForgeHelper:
             requested = params.get("providers")
             providers = [str(item) for item in requested] if isinstance(requested, list) else None
             return {"auth": self._auth_payload(refresh=True, providers=providers)}
+        if method == "connections.codex.device_auth":
+            started = codex_begin_device_auth(settings.codex_bin)
+            return {
+                "instructions": started.instructions,
+                "verification_uri": started.verification_uri,
+                "user_code": started.user_code,
+                "auth": self._auth_payload(refresh=True, providers=["codex"]),
+            }
+        if method == "connections.codex.login_api_key":
+            success, detail = codex_login_with_api_key(
+                settings.codex_bin,
+                api_key=str(params.get("api_key", "")),
+            )
+            return {
+                "success": success,
+                "detail": detail,
+                "auth": self._auth_payload(refresh=True, providers=["codex"]),
+            }
         if method == "settings.update":
             metadata = self.project.metadata
             if "name" in params:
@@ -504,19 +511,25 @@ class PromptForgeHelper:
         else:
             ready = False
             detail = "Codex status not checked yet. Open Settings to refresh connections."
-        return {
+        payload = {
             "name": provider,
             "ready": ready,
             "detail": detail,
         }
+        if provider == "codex":
+            payload["source"] = settings.codex_bin
+        return payload
 
     def _probe_connection_status(self, provider: str) -> dict[str, Any]:
         ready, detail = _provider_auth_status(provider)
-        return {
+        payload = {
             "name": provider,
             "ready": ready,
             "detail": detail,
         }
+        if provider == "codex":
+            payload["source"] = settings.codex_bin
+        return payload
 
     async def _latest_insights(self, prompt: str) -> dict[str, Any]:
         session = self.workspace.current_session(prompt)

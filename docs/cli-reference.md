@@ -2,7 +2,7 @@
 
 _Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge exposes one console entrypoint: `pf`.
+PromptForge exposes one local CLI entrypoint: `pf`.
 
 ```bash
 pf <command> [options]
@@ -13,11 +13,11 @@ Available commands:
 - `setup`
 - `status`
 - `doctor`
-- `forge`
+- `app` (`forge` still works)
 - `prompts`
-- `scenario`
+- `tests` (`scenario` still works)
 - `review`
-- `promote`
+- `ship` (`promote` still works)
 - `run`
 - `compare`
 - `report`
@@ -102,7 +102,7 @@ Shows:
 - redacted OpenAI/OpenRouter key presence
 - Codex login status
 - project root and directory layout
-- active prompt and active forge session
+- active prompt and active workspace session
 
 Use it when:
 
@@ -145,14 +145,16 @@ Use it when:
 - after auth changes
 - after switching providers or models
 
-## `pf forge`
+## `pf app`
 
-Launches the macOS app for the current project.
+Launches the macOS workspace for the current project.
 
 ```bash
-pf forge
-pf forge --project /path/to/project
+pf app
+pf app --project /path/to/project
 ```
+
+Legacy alias: `pf forge`
 
 Flags:
 
@@ -176,8 +178,8 @@ The app then prefers:
 Use it when:
 
 - editing prompts interactively
-- managing case sets
-- running reviews and playground trials
+- working with test suites and reviews
+- using the integrated local agent and playground
 
 ## `pf prompts list`
 
@@ -217,15 +219,17 @@ Creates:
 - `variables.schema.json`
 - `prompt.json`
 
-## `pf scenario list`
+## `pf tests list`
 
-Lists saved scenario suites.
+Lists saved prompt test suites.
 
 ```bash
-pf scenario list
-pf scenario list --prompt v1
-pf scenario list --prompt v1 --json
+pf tests list
+pf tests list --prompt v1
+pf tests list --prompt v1 --json
 ```
+
+Legacy alias: `pf scenario list`
 
 Flags:
 
@@ -234,14 +238,16 @@ Flags:
 | `--prompt` | optional prompt ref used to filter linked suites |
 | `--json` | emit JSON instead of human-friendly output |
 
-## `pf scenario show`
+## `pf tests show`
 
-Shows one saved scenario suite.
+Shows one saved prompt test suite.
 
 ```bash
-pf scenario show --suite core
-pf scenario show --suite core --json
+pf tests show --suite core
+pf tests show --suite core --json
 ```
+
+Legacy alias: `pf scenario show`
 
 Flags:
 
@@ -250,14 +256,16 @@ Flags:
 | `--suite` | suite ID |
 | `--json` | emit JSON |
 
-## `pf scenario create`
+## `pf tests create`
 
-Creates a new scenario suite.
+Creates a new prompt test suite.
 
 ```bash
-pf scenario create --suite returns
-pf scenario create --suite returns --prompt v1 --name "Returns" --description "Return flow cases"
+pf tests create --suite returns
+pf tests create --suite returns --prompt v1 --name "Returns" --description "Return flow cases"
 ```
+
+Legacy alias: `pf scenario create`
 
 Flags:
 
@@ -268,14 +276,16 @@ Flags:
 | `--name` | display name |
 | `--description` | suite description |
 
-## `pf scenario run`
+## `pf tests run`
 
-Runs one saved scenario suite against one prompt.
+Runs one saved prompt test suite against one prompt.
 
 ```bash
-pf scenario run --suite core --prompt v1
-pf scenario run --suite core --prompt v1 --repeats 3 --json
+pf tests run --suite core --prompt v1
+pf tests run --suite core --prompt v1 --repeats 3 --json
 ```
+
+Legacy alias: `pf scenario run`
 
 Flags:
 
@@ -288,9 +298,9 @@ Flags:
 
 Behavior:
 
-- creates or reloads the forge session for the prompt
+- creates or reloads the local workspace session for the prompt
 - runs every suite case against the current prompt and the baseline
-- stores the resulting review inside the forge session
+- stores the resulting review inside the workspace session
 
 ## `pf review`
 
@@ -312,14 +322,16 @@ Use it when:
 
 - you want review results from the CLI instead of the app
 
-## `pf promote`
+## `pf ship`
 
-Promotes the current prompt workspace to baseline and records a decision.
+Ships the current prompt workspace to baseline and records a decision.
 
 ```bash
-pf promote --prompt v1 --summary "Ship candidate"
-pf promote --prompt v1 --summary "Ship candidate" --rationale "Improves case wins"
+pf ship --prompt v1 --summary "Ship candidate"
+pf ship --prompt v1 --summary "Ship candidate" --rationale "Improves case wins"
 ```
+
+Legacy alias: `pf promote`
 
 Flags:
 
@@ -427,18 +439,18 @@ open var/runs/$(ls -t var/runs | head -n 1)/report.md
 pf compare --a v1 --b v2 --dataset datasets/core.jsonl
 ```
 
-### List and run linked case sets
+### List and run linked test suites
 
 ```bash
-pf scenario list --prompt v2
-pf scenario run --suite core --prompt v2 --json
+pf tests list --prompt v2
+pf tests run --suite core --prompt v2 --json
 ```
 
-### Promote after review
+### Ship after review
 
 ```bash
 pf review --prompt v2 --json
-pf promote --prompt v2 --summary "Promote after passing core review"
+pf ship --prompt v2 --summary "Ship after passing core review"
 ```
 
 ## Troubleshooting By Command
@@ -448,9 +460,9 @@ pf promote --prompt v2 --summary "Promote after passing core review"
 | `pf setup` | wizard loops on model input | entered `yes` or `no` for a model name | enter a real model name or accept the default |
 | `pf status` | wrong active prompt | last opened prompt or workspace state is stale | open the desired prompt in the app or inspect `.promptforge/project.json` |
 | `pf doctor` | auth passes but model check fails | selected model not available to that provider | switch model or provider |
-| `pf forge` | app fails to open | app not installed or not built | build/install `PromptForge.app` or set `PF_APP_PATH` |
+| `pf app` | app fails to open | app not installed or not built | build/install `PromptForge.app` or set `PF_APP_PATH` |
 | `pf prompts create` | prompt already exists | version directory already present | choose a new version or remove the old directory |
-| `pf scenario run` | suite missing | suite ID not found | run `pf scenario list` first |
+| `pf tests run` | suite missing | suite ID not found | run `pf tests list` first |
 | `pf run` | prompt pack invalid | missing required prompt files | fix `manifest.yaml`, `system.md`, `user_template.md`, or `variables.schema.json` |
 | `pf run` | dataset case rejected | schema mismatch | fix `case.input` to satisfy `variables.schema.json` |
 | `pf compare` | confusing winner | hard-fails outweighed score deltas | inspect child runs and `comparison.json` |

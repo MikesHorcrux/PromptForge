@@ -193,7 +193,7 @@ Source:
 
 - [apps/macos/PromptForge/PromptForge/PromptForgeApp.swift](../apps/macos/PromptForge/PromptForge/PromptForgeApp.swift)
 - [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)
-- [apps/macos/PromptForge/scripts/bundle_engine.sh](../apps/macos/PromptForge/scripts/bundle_engine.sh)
+- [packaging/macos/bundle_engine.sh](../packaging/macos/bundle_engine.sh)
 
 ## Practical Implications
 

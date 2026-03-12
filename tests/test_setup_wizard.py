@@ -67,12 +67,12 @@ def test_setup_wizard_can_launch_codex_login(tmp_path: Path, monkeypatch) -> Non
     def fake_run(*args, **kwargs):
         command = args[0]
         commands.append(command)
-        if command[:3] == ["codex", "login", "status"]:
+        if len(command) >= 3 and command[1:3] == ["login", "status"]:
             state["status_calls"] += 1
             if state["status_calls"] == 1:
                 return CompletedProcess(command, 1, stdout="", stderr="Not logged in")
             return CompletedProcess(command, 0, stdout="Logged in using ChatGPT", stderr="")
-        if command[:2] == ["codex", "login"]:
+        if command[1:] == ["login"]:
             return CompletedProcess(command, 0, stdout="", stderr="")
         return CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -84,4 +84,4 @@ def test_setup_wizard_can_launch_codex_login(tmp_path: Path, monkeypatch) -> Non
     assert exit_code == 0
     assert saved["PF_PROVIDER"] == "codex"
     assert saved["PF_JUDGE_PROVIDER"] == ""
-    assert ["codex", "login"] in commands
+    assert any(command[1:] == ["login"] for command in commands)

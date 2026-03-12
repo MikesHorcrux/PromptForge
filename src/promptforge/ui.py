@@ -26,24 +26,9 @@ THEME = Theme(
 
 console = Console(theme=THEME)
 
-_BANNER = r"""
-______                          _   ______
-| ___ \                        | | |  ___|
-| |_/ / __ ___  _ __ ___  _ __ | |_| |_ ___  _ __ __ _  ___
-|  __/ '__/ _ \| '_ ` _ \| '_ \| __|  _/ _ \| '__/ _` |/ _ \
-| |  | | | (_) | | | | | | |_) | |_| || (_) | | | (_| |  __/
-\_|  |_|  \___/|_| |_| |_| .__/ \__\_| \___/|_|  \__, |\___|
-                         | |                      __/ |
-                         |_|                     |___/
-"""
-
-
-def print_banner(command_name: str, *, subtitle: str = "Runehall of Hazar") -> None:
-    title = Text(_BANNER.strip("\n"), style="gold")
-    body = Text()
-    body.append(f"{command_name}\n", style="ember")
-    console.print(Panel.fit(title, border_style="ember", padding=(1, 2), subtitle=subtitle))
-    console.print(body)
+def print_banner(command_name: str, *, subtitle: str = "Local prompt evaluation") -> None:
+    title = Text(command_name, style="title")
+    console.print(Panel.fit(title, title="PromptForge", border_style="steel", padding=(0, 2), subtitle=subtitle))
     console.print()
 
 
@@ -89,7 +74,7 @@ def print_run_summary(
         ("Hard fails", f"{hard_fail_count} / {total_cases}"),
         ("Artifacts", artifact_dir),
     ]
-    print_key_value_block("Forged Trial", rows)
+    print_key_value_block("Evaluation Run", rows)
 
 
 def print_compare_summary(
@@ -117,21 +102,21 @@ def print_compare_summary(
         ("Case wins", f"A={wins_a}  B={wins_b}  ties={ties}"),
         ("Artifacts", artifact_dir),
     ]
-    print_key_value_block("Duel of Sigils", rows)
+    print_key_value_block("Comparison", rows)
 
 
 def print_report_location(path: Path, *, printed: bool) -> None:
-    message = "The chronicle was printed to stdout." if printed else str(path)
+    message = "Printed to stdout" if printed else str(path)
     print_key_value_block("Report", [("Location", message)])
 
 
 def print_doctor_results(checks: Sequence[tuple[str, bool, str]], *, hint: str | None = None) -> None:
-    table = Table(title="Ward Inspection", border_style="steel")
-    table.add_column("Seal", style="gold", no_wrap=True)
-    table.add_column("State", no_wrap=True)
+    table = Table(title="Environment Check", border_style="steel")
+    table.add_column("Check", style="gold", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
     table.add_column("Detail", style="steel")
     for name, ok, detail in checks:
-        state = "[moss]READY[/moss]" if ok else "[warning]BROKEN[/warning]"
+        state = "[moss]PASS[/moss]" if ok else "[warning]FAIL[/warning]"
         table.add_row(name, state, detail)
     console.print(table)
     if hint:
@@ -155,7 +140,7 @@ def print_setup_summary(
         ("OpenAI key", "saved" if openai_saved else "unchanged"),
         ("OpenRouter key", "saved" if openrouter_saved else "unchanged"),
     ]
-    print_key_value_block("Forge Attunement", rows)
+    print_key_value_block("Setup Summary", rows)
 
 
 def print_info(message: str) -> None:
@@ -185,7 +170,7 @@ def print_agent_result(*, summary: str, changed_files: Sequence[str], diff_previ
 
 
 def print_forge_status(rows: Sequence[tuple[str, str]]) -> None:
-    print_key_value_block("Forge Status", rows)
+    print_key_value_block("Workspace Status", rows)
 
 
 def print_forge_revision_summary(revision) -> None:
@@ -236,11 +221,11 @@ def print_forge_revision_summary(revision) -> None:
         )
     if full_eval:
         rows.append(("Full eval", f"{full_eval.mean_effective_score:.2f} / 5.00"))
-    print_key_value_block("Forge Revision", rows)
+    print_key_value_block("Workspace Revision", rows)
 
 
 def print_forge_history(rows: Sequence[tuple[str, str, str, str, str]]) -> None:
-    table = Table(title="Revision Ledger", border_style="steel")
+    table = Table(title="Revision History", border_style="steel")
     table.add_column("Revision", style="gold", no_wrap=True)
     table.add_column("Source", style="steel")
     table.add_column("Bench", justify="right")
@@ -308,9 +293,9 @@ def print_forge_help() -> None:
             "/coach <request>       Ask for advice without editing the prompt",
             "/save <version>        Export the working prompt pack to prompt_packs/<version>",
             "/reset [note]          Reset the working prompt back to the baseline",
-            "/quit                  Leave the forge session",
+            "/quit                  Leave the workspace session",
             "",
             "Any line without a leading slash is treated as an agent edit request.",
         ]
     )
-    print_text_panel("Forge Commands", commands)
+    print_text_panel("Workspace Commands", commands)

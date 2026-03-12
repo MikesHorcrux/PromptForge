@@ -184,7 +184,7 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(PROJECT_DIR)/scripts/bundle_engine.sh",
+				"$(PROJECT_DIR)/../../../packaging/macos/bundle_engine.sh",
 				"$(PROJECT_DIR)/../../../src",
 				"$(PROJECT_DIR)/../../../datasets",
 				"$(PROJECT_DIR)/../../../.venv",
@@ -199,7 +199,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "/bin/sh \"$PROJECT_DIR/scripts/bundle_engine.sh\"\n";
+			shellScript = "/bin/sh \"$PROJECT_DIR/../../../packaging/macos/bundle_engine.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

@@ -28,28 +28,55 @@ enum EngineRuntimeSource: Equatable {
     case projectFallback
 }
 
+struct EngineRuntimeManifest: Decodable, Equatable {
+    let schemaVersion: Int
+    let generatedAt: String?
+    let pythonExecutable: String
+    let helperModule: String
+    let pythonPathEntries: [String]
+    let pathEntries: [String]
+    let codexBinary: String?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case generatedAt = "generated_at"
+        case pythonExecutable = "python_executable"
+        case helperModule = "helper_module"
+        case pythonPathEntries = "python_path_entries"
+        case pathEntries = "path_entries"
+        case codexBinary = "codex_binary"
+    }
+}
+
+struct EngineRuntimeConfiguration: Equatable {
+    let rootPath: String
+    let pythonExecutable: String
+    let helperModule: String
+    let pythonPathEntries: [String]
+    let pathEntries: [String]
+    let codexBinary: String?
+}
+
 struct EngineRuntimeSelection: Equatable {
     let rootPath: String
     let source: EngineRuntimeSource
+    let configuration: EngineRuntimeConfiguration
 }
 
 enum EngineRuntimeLocator {
     static let bundledDirectoryName = "engine"
+    static let manifestFileName = "runtime-manifest.json"
 
     static func bundledEngineRoot(resourceURL: URL?) -> String? {
         guard let resourceURL else {
             return nil
         }
         let candidate = resourceURL.appendingPathComponent(bundledDirectoryName).path
-        return isValidEngineRoot(candidate) ? standardized(candidate) : nil
+        return configuration(for: candidate) != nil ? standardized(candidate) : nil
     }
 
     static func isValidEngineRoot(_ root: String) -> Bool {
-        let standardizedRoot = standardized(root)
-        let pythonExecutable = URL(fileURLWithPath: standardizedRoot).appendingPathComponent(".venv/bin/python").path
-        let helperModule = URL(fileURLWithPath: standardizedRoot).appendingPathComponent("src/promptforge/helper/server.py").path
-        return FileManager.default.isExecutableFile(atPath: pythonExecutable)
-            && FileManager.default.fileExists(atPath: helperModule)
+        configuration(for: root) != nil
     }
 
     static func resolve(
@@ -72,14 +99,14 @@ enum EngineRuntimeLocator {
             if !seen.insert(standardizedCandidate).inserted {
                 continue
             }
-            if isValidEngineRoot(standardizedCandidate) {
-                return EngineRuntimeSelection(rootPath: standardizedCandidate, source: source)
+            if let configuration = configuration(for: standardizedCandidate) {
+                return EngineRuntimeSelection(rootPath: standardizedCandidate, source: source, configuration: configuration)
             }
         }
 #if DEBUG
         let projectCandidate = standardized(projectURL.path)
-        if seen.insert(projectCandidate).inserted, isValidEngineRoot(projectCandidate) {
-            return EngineRuntimeSelection(rootPath: projectCandidate, source: .projectFallback)
+        if seen.insert(projectCandidate).inserted, let configuration = configuration(for: projectCandidate) {
+            return EngineRuntimeSelection(rootPath: projectCandidate, source: .projectFallback, configuration: configuration)
         }
 #endif
         return nil
@@ -91,6 +118,61 @@ enum EngineRuntimeLocator {
 
     private static func standardized(_ path: String) -> String {
         URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
+    }
+
+    static func configuration(for root: String) -> EngineRuntimeConfiguration? {
+        let standardizedRoot = standardized(root)
+        let rootURL = URL(fileURLWithPath: standardizedRoot)
+        let manifestURL = rootURL.appendingPathComponent(manifestFileName)
+
+        if
+            let data = try? Data(contentsOf: manifestURL),
+            let manifest = try? JSONDecoder().decode(EngineRuntimeManifest.self, from: data)
+        {
+            let pythonExecutable = rootURL.appendingPathComponent(manifest.pythonExecutable).path
+            guard FileManager.default.isExecutableFile(atPath: pythonExecutable) else {
+                return nil
+            }
+
+            let pythonPathEntries = manifest.pythonPathEntries.map { rootURL.appendingPathComponent($0).path }
+            guard !pythonPathEntries.isEmpty else {
+                return nil
+            }
+
+            let pathEntries = manifest.pathEntries.map { rootURL.appendingPathComponent($0).path }
+            let codexBinary = manifest.codexBinary.map { rootURL.appendingPathComponent($0).path }
+
+            if let codexBinary, !FileManager.default.isExecutableFile(atPath: codexBinary) {
+                return nil
+            }
+
+            return EngineRuntimeConfiguration(
+                rootPath: standardizedRoot,
+                pythonExecutable: pythonExecutable,
+                helperModule: manifest.helperModule,
+                pythonPathEntries: pythonPathEntries,
+                pathEntries: pathEntries,
+                codexBinary: codexBinary
+            )
+        }
+
+        let pythonExecutable = rootURL.appendingPathComponent(".venv/bin/python").path
+        let helperModule = rootURL.appendingPathComponent("src/promptforge/helper/server.py").path
+        guard
+            FileManager.default.isExecutableFile(atPath: pythonExecutable),
+            FileManager.default.fileExists(atPath: helperModule)
+        else {
+            return nil
+        }
+
+        return EngineRuntimeConfiguration(
+            rootPath: standardizedRoot,
+            pythonExecutable: pythonExecutable,
+            helperModule: "promptforge.helper.server",
+            pythonPathEntries: [rootURL.appendingPathComponent("src").path],
+            pathEntries: [],
+            codexBinary: nil
+        )
     }
 }
 
@@ -223,9 +305,9 @@ enum PromptWorkspaceMode: String, CaseIterable, Identifiable {
         case .studio:
             return "Prompt"
         case .tests:
-            return "Cases"
+            return "Tests"
         case .review:
-            return "Results"
+            return "Review"
         }
     }
 }
@@ -560,39 +642,47 @@ final class PromptForgeHelperClient {
     }
 
     private func launchHelper() throws {
-        guard EngineRuntimeLocator.isValidEngineRoot(engineRoot) else {
+        guard let runtimeConfiguration = EngineRuntimeLocator.configuration(for: engineRoot) else {
             throw HelperClientError.helperLaunchFailed(EngineRuntimeLocator.missingRuntimeMessage)
         }
         let process = Process()
-        let pythonExecutable = URL(fileURLWithPath: engineRoot).appendingPathComponent(".venv/bin/python").path
-        if FileManager.default.isExecutableFile(atPath: pythonExecutable) {
-            process.executableURL = URL(fileURLWithPath: pythonExecutable)
-            process.arguments = [
-                "-m",
-                "promptforge.helper.server",
-                "--project",
-                projectRoot,
-                "--socket",
-                socketPath,
-                "--token",
-                token,
-            ]
-        } else {
-            throw HelperClientError.helperLaunchFailed(EngineRuntimeLocator.missingRuntimeMessage)
-        }
+        process.executableURL = URL(fileURLWithPath: runtimeConfiguration.pythonExecutable)
+        process.arguments = [
+            "-m",
+            runtimeConfiguration.helperModule,
+            "--project",
+            projectRoot,
+            "--socket",
+            socketPath,
+            "--token",
+            token,
+        ]
 
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
         process.standardOutput = Pipe()
 
         var environment = ProcessInfo.processInfo.environment
-        let pythonPath = URL(fileURLWithPath: engineRoot).appendingPathComponent("src").path
-        if let existing = environment["PYTHONPATH"], !existing.isEmpty {
-            environment["PYTHONPATH"] = "\(existing):\(pythonPath)"
-        } else {
-            environment["PYTHONPATH"] = pythonPath
+        let pythonPath = runtimeConfiguration.pythonPathEntries.joined(separator: ":")
+        if !pythonPath.isEmpty {
+            if let existing = environment["PYTHONPATH"], !existing.isEmpty {
+                environment["PYTHONPATH"] = "\(pythonPath):\(existing)"
+            } else {
+                environment["PYTHONPATH"] = pythonPath
+            }
+        }
+        let bundledPath = runtimeConfiguration.pathEntries.joined(separator: ":")
+        if !bundledPath.isEmpty {
+            if let existing = environment["PATH"], !existing.isEmpty {
+                environment["PATH"] = "\(bundledPath):\(existing)"
+            } else {
+                environment["PATH"] = bundledPath
+            }
         }
         environment["PF_ENGINE_ROOT"] = engineRoot
+        if let codexBinary = runtimeConfiguration.codexBinary {
+            environment["PF_CODEX_BIN"] = codexBinary
+        }
         KeychainSecretStore.hydrate(environment: &environment)
         process.environment = environment
 
@@ -960,8 +1050,8 @@ final class PromptForgeAppModel: ObservableObject {
                         params: [
                             "prompt": prompt,
                             "suite_id": suiteID,
-                            "name": "New Suite",
-                            "description": "New scenario suite created from the workspace.",
+                            "name": "New Test Suite",
+                            "description": "New test suite created from the app.",
                         ]
                     )
                     try await refreshScenarioSuites()
@@ -969,7 +1059,7 @@ final class PromptForgeAppModel: ObservableObject {
                     selectedWorkspaceMode = .tests
                 }
             } catch {
-                appendTranscript(.warning, "Scenarios", error.localizedDescription)
+                appendTranscript(.warning, "Tests", error.localizedDescription)
             }
         }
     }
@@ -1081,23 +1171,90 @@ final class PromptForgeAppModel: ObservableObject {
         }
     }
 
-    func launchCodexLogin() {
+    func authenticateCodexWithOpenAIKey() {
+        Task {
+            await runCodexAPIKeyLogin()
+        }
+    }
+
+    func beginCodexDeviceAuth() {
+        Task {
+            await runCodexDeviceAuth()
+        }
+    }
+
+    private func runCodexAPIKeyLogin() async {
+        guard let helper else {
+            settingsError = "Open a project before signing into Codex."
+            return
+        }
         settingsError = nil
         settingsNotice = nil
-        let script = """
-        tell application "Terminal"
-            activate
-            do script "codex login"
-        end tell
-        """
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
+        isBusy = true
+        defer { isBusy = false }
+
+        let draftKey = openAIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedKey = draftKey.isEmpty ? (KeychainSecretStore.read(key: "OPENAI_API_KEY") ?? "") : draftKey
+        let apiKey = resolvedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            settingsError = "Add an OpenAI API key first, then retry Codex sign-in."
+            return
+        }
+        if !draftKey.isEmpty {
+            _ = KeychainSecretStore.write(key: "OPENAI_API_KEY", value: apiKey)
+            openAIKeyDraft = ""
+        }
+
         do {
-            try process.run()
-            settingsNotice = "Opened Terminal for `codex login`. Refresh connection status after completing the flow."
+            let payload = try await helper.send(
+                method: "connections.codex.login_api_key",
+                params: ["api_key": apiKey]
+            )
+            if let authPayload = payload["auth"] as? [String: Any] {
+                applyConnectionPayload(authPayload)
+            }
+            let success = payload["success"] as? Bool ?? false
+            let detail = payload["detail"] as? String ?? "Codex login finished."
+            if success {
+                settingsNotice = detail
+            } else {
+                settingsError = detail
+            }
         } catch {
-            settingsError = "Could not launch Codex login: \(error.localizedDescription)"
+            settingsError = error.localizedDescription
+        }
+    }
+
+    private func runCodexDeviceAuth() async {
+        guard let helper else {
+            settingsError = "Open a project before signing into Codex."
+            return
+        }
+        settingsError = nil
+        settingsNotice = nil
+        isBusy = true
+        defer { isBusy = false }
+
+        do {
+            let payload = try await helper.send(method: "connections.codex.device_auth")
+            if let authPayload = payload["auth"] as? [String: Any] {
+                applyConnectionPayload(authPayload)
+            }
+            let verificationURI = payload["verification_uri"] as? String
+            let userCode = payload["user_code"] as? String
+            let instructions = payload["instructions"] as? String ?? "Codex device sign-in started."
+
+            if let verificationURI, let url = URL(string: verificationURI) {
+                _ = NSWorkspace.shared.open(url)
+            }
+
+            if let verificationURI, let userCode {
+                settingsNotice = "Open \(verificationURI) and enter code \(userCode). Refresh status after you finish sign-in."
+            } else {
+                settingsNotice = instructions
+            }
+        } catch {
+            settingsError = error.localizedDescription
         }
     }
 
@@ -1151,21 +1308,20 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func agentChat(_ request: String) async {
         guard let prompt = selectedPrompt, let helper else {
-            appendTranscript(.warning, "PromptForge", "Choose a project and a prompt first.")
+            appendTranscript(.warning, "Agent", "Choose a project and a prompt first.")
             return
         }
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
             return
         }
         do {
-            try await withBusyState("Asking Forgie") {
+            try await withBusyState("Asking agent") {
                 let result = try await helper.send(
                     method: "agent.chat",
                     params: ["prompt": prompt, "request": request]
                 )
                 let chatPayload = result["chat"] as? [String: Any] ?? [:]
                 let message = chatPayload["message"] as? String ?? ""
-                let chatKind = chatPayload["kind"] as? String ?? "reply"
 
                 if let proposal = proposalFromResult(result) {
                     if shouldAutoApplyEdits {
@@ -1182,8 +1338,7 @@ final class PromptForgeAppModel: ObservableObject {
                         }
                     }
                 } else if !message.isEmpty {
-                    let title = chatKind == "reply" ? "PromptForge" : "Agent"
-                    appendTranscript(.agent, title, message)
+                    appendTranscript(.agent, "Agent", message)
                 } else {
                     throw HelperClientError.missingField("The helper did not return a message.")
                 }
@@ -1199,7 +1354,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func coachPrompt(_ request: String) async {
         guard let prompt = selectedPrompt, let helper else {
-            appendTranscript(.warning, "PromptForge", "Choose a project and a prompt first.")
+            appendTranscript(.warning, "Agent", "Choose a project and a prompt first.")
             return
         }
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
@@ -1223,7 +1378,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func prepareEditProposal(_ request: String) async {
         guard let prompt = selectedPrompt, let helper else {
-            appendTranscript(.warning, "PromptForge", "Choose a project and a prompt first.")
+            appendTranscript(.warning, "Agent", "Choose a project and a prompt first.")
             return
         }
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
@@ -1326,7 +1481,7 @@ final class PromptForgeAppModel: ObservableObject {
         case "agent.apply_prepared_edit":
             return "Applying staged edit."
         case "bench.run_quick":
-            return "Running quick benchmark."
+            return "Running quick check."
         case "eval.run_full":
             return "Running full evaluation."
         case "prompts.create":
@@ -1353,7 +1508,7 @@ final class PromptForgeAppModel: ObservableObject {
         case "agent.apply_prepared_edit":
             return "Applied staged edit."
         case "bench.run_quick":
-            return "Quick benchmark finished."
+            return "Quick check finished."
         case "eval.run_full":
             return "Full evaluation finished."
         case "prompts.create":
@@ -1464,7 +1619,7 @@ final class PromptForgeAppModel: ObservableObject {
                     .filter { $0.0 != "Latest score" }
                     .map { "\($0.0): \($0.1)" }
                     .joined(separator: "\n")
-                appendTranscript(.system, "Latest benchmark delta", diffText.isEmpty ? "No diff available yet." : diffText)
+                appendTranscript(.system, "Latest quick-check delta", diffText.isEmpty ? "No diff available yet." : diffText)
             }
         case "/failures":
             let failureText = failureCases
@@ -1563,7 +1718,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func runHelperMethod(_ method: String) async {
         guard let helper, let prompt = selectedPrompt else {
-            appendTranscript(.warning, "PromptForge", "Choose a prompt first.")
+            appendTranscript(.warning, "Agent", "Choose a prompt first.")
             return
         }
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
@@ -1813,7 +1968,7 @@ final class PromptForgeAppModel: ObservableObject {
                 label: "Codex",
                 ready: connectionPayloads["codex"]?["ready"] as? Bool ?? false,
                 detail: connectionPayloads["codex"]?["detail"] as? String ?? "Codex status unknown.",
-                source: "Local login session"
+                source: connectionPayloads["codex"]?["source"] as? String ?? "System CLI"
             ),
         ]
     }
@@ -2081,11 +2236,11 @@ final class PromptForgeAppModel: ObservableObject {
 
     func promotePlaygroundInputToScenario() {
         guard var suite = scenarioDraft ?? selectedSuite else {
-            scenarioNotice = "Create or select a scenario suite first."
+            scenarioNotice = "Create or select a test suite first."
             return
         }
         guard parseJSONObject(from: playgroundInputJSON) != nil else {
-            appendTranscript(.warning, "Scenarios", "Playground input must be valid JSON before promoting it to a case.")
+            appendTranscript(.warning, "Tests", "Playground input must be valid JSON before promoting it to a case.")
             return
         }
         let caseID = "playground-\(Int(Date().timeIntervalSince1970))"
@@ -2103,7 +2258,7 @@ final class PromptForgeAppModel: ObservableObject {
         selectedSuiteID = suite.suiteID
         selectedScenarioCaseID = caseID
         selectedWorkspaceMode = .tests
-        scenarioNotice = "Promoted the current playground input into the selected suite."
+        scenarioNotice = "Promoted the current playground input into the selected test suite."
     }
 
     func saveScenarioSuite() {
@@ -2165,7 +2320,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func triggerScenarioReview() async {
         guard let helper, let prompt = selectedPrompt, let suiteID = selectedSuite?.suiteID else {
-            appendTranscript(.warning, "Review", "Choose a prompt and scenario suite first.")
+            appendTranscript(.warning, "Review", "Choose a prompt and test suite first.")
             return
         }
         guard await persistPromptWorkspace(showNoChangeNotice: false) else {
@@ -2173,7 +2328,7 @@ final class PromptForgeAppModel: ObservableObject {
         }
         do {
             let caseCount = selectedSuite?.cases.count ?? 0
-            let label = caseCount > 0 ? "Running suite on \(caseCount) cases" : "Running suite"
+            let label = caseCount > 0 ? "Running \(caseCount) tests" : "Running tests"
             try await withBusyState(label) {
                 let payload = try await helper.send(
                     method: "review.run_suite",
@@ -2224,7 +2379,7 @@ final class PromptForgeAppModel: ObservableObject {
                 method: "decisions.promote",
                 params: [
                     "prompt": prompt,
-                    "summary": "Promote current candidate to baseline.",
+                    "summary": "Ship current candidate to baseline.",
                     "review_id": latestReview?.reviewID as Any,
                     "suite_id": latestReview?.suiteID as Any,
                 ]
@@ -2233,22 +2388,22 @@ final class PromptForgeAppModel: ObservableObject {
             try? await refreshBuilderActions()
             try? await refreshStatus()
         } catch {
-            appendTranscript(.warning, "Promote", error.localizedDescription)
+            appendTranscript(.warning, "Ship", error.localizedDescription)
         }
     }
 
     private func persistScenarioSuite() async {
         guard let helper, var suite = scenarioDraft ?? selectedSuite else {
-            appendTranscript(.warning, "Scenarios", "Choose a scenario suite before saving.")
+            appendTranscript(.warning, "Tests", "Choose a test suite before saving.")
             return
         }
         guard let prompt = selectedPrompt else {
-            appendTranscript(.warning, "Scenarios", "Choose a prompt before saving a suite.")
+            appendTranscript(.warning, "Tests", "Choose a prompt before saving a test suite.")
             return
         }
         let parsedCases = suite.cases.compactMap(buildScenarioCasePayload(_:))
         guard parsedCases.count == suite.cases.count else {
-            appendTranscript(.warning, "Scenarios", "Every scenario case must contain valid JSON input before saving.")
+            appendTranscript(.warning, "Tests", "Every test case must contain valid JSON input before saving.")
             return
         }
         if !suite.linkedPrompts.contains(prompt) {
@@ -2292,11 +2447,11 @@ final class PromptForgeAppModel: ObservableObject {
                     selectedScenarioCaseID = nil
                 }
             }
-            scenarioNotice = "Scenario suite saved."
-            appendTranscript(.result, "Scenarios", "Saved suite \(suite.name).")
+            scenarioNotice = "Test suite saved."
+            appendTranscript(.result, "Tests", "Saved suite \(suite.name).")
         } catch {
             scenarioNotice = error.localizedDescription
-            appendTranscript(.warning, "Scenarios", error.localizedDescription)
+            appendTranscript(.warning, "Tests", error.localizedDescription)
         }
     }
 

@@ -5,8 +5,6 @@ import asyncio
 import json
 import os
 import platform
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +18,7 @@ from promptforge.forge.workspace import ForgeWorkspaceService, WorkspaceState
 from promptforge.project import PromptForgeProject
 from promptforge.prompts.loader import load_prompt_pack
 from promptforge.runtime.artifacts import ArtifactStore
+from promptforge.runtime.codex_cli import codex_login_status
 from promptforge.runtime.gateway import build_gateway
 from promptforge.runtime.report_service import render_comparison_report, render_evaluation_report
 from promptforge.runtime.run_service import EvaluationService
@@ -72,16 +71,14 @@ def _build_provider_service(args: argparse.Namespace) -> EvaluationService:
 
 
 async def _run_command(args: argparse.Namespace) -> int:
-    print_banner("Trial by Runefire")
+    print_banner("Run")
     scoring_config = _load_scoring_config(args.scoring_config)
     run_config = _build_run_config(args)
     judge_provider = _resolve_judge_provider(args)
     args.model = _normalize_model_choice(args.model, args.provider, purpose="generation")
     scoring_config.judge_model = _normalize_model_choice(scoring_config.judge_model, judge_provider, purpose="judge")
-    print_info(
-        f"Stoking the forge for prompt `{args.prompt}` on dataset `{args.dataset}`."
-    )
-    with console.status("[ember]Binding runes and evaluating cases...[/ember]"):
+    print_info(f"Running prompt `{args.prompt}` against dataset `{args.dataset}`.")
+    with console.status("[ember]Evaluating cases...[/ember]"):
         manifest = await _build_provider_service(args).run(
             RunRequest(
                 prompt_version=args.prompt,
@@ -110,16 +107,14 @@ async def _run_command(args: argparse.Namespace) -> int:
 
 
 async def _compare_command(args: argparse.Namespace) -> int:
-    print_banner("Duel of Sigils")
+    print_banner("Compare")
     scoring_config = _load_scoring_config(args.scoring_config)
     run_config = _build_run_config(args)
     judge_provider = _resolve_judge_provider(args)
     args.model = _normalize_model_choice(args.model, args.provider, purpose="generation")
     scoring_config.judge_model = _normalize_model_choice(scoring_config.judge_model, judge_provider, purpose="judge")
-    print_info(
-        f"Setting `{args.a}` against `{args.b}` on dataset `{args.dataset}`."
-    )
-    with console.status("[ember]Weighing rival sigils in the forge...[/ember]"):
+    print_info(f"Comparing `{args.a}` and `{args.b}` on dataset `{args.dataset}`.")
+    with console.status("[ember]Running baseline and candidate evaluations...[/ember]"):
         manifest = await _build_provider_service(args).compare(
             prompt_a=args.a,
             prompt_b=args.b,
@@ -156,7 +151,7 @@ async def _compare_command(args: argparse.Namespace) -> int:
 
 def _report_command(args: argparse.Namespace) -> int:
     if not args.print:
-        print_banner("Chronicle Reading")
+        print_banner("Report")
     store = ArtifactStore()
     run_dir = store.resolve_run_dir(args.run)
     manifest = RunManifest.model_validate(store.read_json(run_dir / "run.json"))
@@ -218,17 +213,17 @@ def _status_command(args: argparse.Namespace) -> int:
         ("Prompt packs", str(settings.prompt_pack_dir)),
         ("Datasets", str(settings.dataset_dir)),
         ("Var dir", str(settings.var_dir)),
-        ("Quick benchmark dataset", project.metadata.quick_benchmark_dataset),
-        ("Full evaluation dataset", project.metadata.full_evaluation_dataset),
+        ("Quick-check dataset", project.metadata.quick_benchmark_dataset),
+        ("Evaluation dataset", project.metadata.full_evaluation_dataset),
         ("Active prompt", active_prompt or "--"),
-        ("Active session", active_session or "--"),
+        ("Active workspace session", active_session or "--"),
     ]
     print_key_value_block("Workspace", workspace_rows)
     return 0
 
 
 async def _doctor_command(args: argparse.Namespace) -> int:
-    print_banner("Ward Inspection")
+    print_banner("Doctor")
     checks: list[tuple[str, bool, str]] = []
     python_ok = sys.version_info >= (3, 11)
     checks.append(("python", python_ok, platform.python_version()))
@@ -285,7 +280,7 @@ async def _doctor_command(args: argparse.Namespace) -> int:
 
     hint = None
     if not all(ok for _, ok, _ in checks):
-        hint = "Run `pf setup` to attune auth, keys, and default providers."
+        hint = "Run `pf setup` to configure auth, keys, and default providers."
     print_doctor_results(checks, hint=hint)
     return 0 if all(ok for _, ok, _ in checks) else 1
 
@@ -335,14 +330,14 @@ def _forge_command_sync(args: argparse.Namespace) -> int:
     engine_root = Path(__file__).resolve().parents[2]
     PromptForgeProject.open_or_create(project_root)
     if platform.system() != "Darwin":
-        print_warning("`pf forge` currently opens the macOS app, so it only works on macOS.")
+        print_warning("`pf app` opens the macOS workspace, so it only works on macOS.")
         print_info(f"Project ready at {project_root}. Use `pf status`, `pf run`, and `pf compare` from the CLI.")
         return 1
 
     app_path = _resolve_forge_app_path()
     if app_path is None:
         print_warning("PromptForge.app was not found.")
-        print_info("Build or install the macOS app first, then rerun `pf forge`.")
+        print_info("Build or install the macOS workspace app first, then rerun `pf app`.")
         print_info("Expected locations:")
         print_info("- /Applications/PromptForge.app")
         print_info("- ~/Applications/PromptForge.app")
@@ -399,8 +394,8 @@ async def _scenario_run_command(args: argparse.Namespace) -> int:
         print(json.dumps(review.model_dump(mode="json"), indent=2, sort_keys=True))
         return 0
 
-    print_banner("Scenario Run")
-    print_info(f"Ran suite `{review.suite_name}` for prompt `{args.prompt}`.")
+    print_banner("Test Run")
+    print_info(f"Ran test suite `{review.suite_name}` for prompt `{args.prompt}`.")
     summary_rows = [
         ("Review", review.review_id),
         ("Revision", review.revision_id or "--"),
@@ -410,7 +405,7 @@ async def _scenario_run_command(args: argparse.Namespace) -> int:
     ]
     print_key_value_block("Review Summary", summary_rows)
 
-    table = Table(title="Scenario Cases")
+    table = Table(title="Test Cases")
     table.add_column("Case", style="bold yellow3")
     table.add_column("Status")
     table.add_column("Candidate")
@@ -438,7 +433,7 @@ def _scenario_command(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps([suite.model_dump(mode="json") for suite in suites], indent=2, sort_keys=True))
             return 0
-        table = Table(title="Scenario Suites")
+        table = Table(title="Test Suites")
         table.add_column("Suite", style="bold yellow3")
         table.add_column("Cases")
         table.add_column("Linked prompts")
@@ -457,12 +452,12 @@ def _scenario_command(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(suite.model_dump(mode="json"), indent=2, sort_keys=True))
             return 0
-        print_banner("Scenario Suite")
+        print_banner("Test Suite")
         print_key_value_block(
             suite.name,
             [
                 ("Suite ID", suite.suite_id),
-                ("Cases", str(len(suite.cases))),
+                ("Tests", str(len(suite.cases))),
                 ("Linked prompts", ", ".join(suite.linked_prompts) if suite.linked_prompts else "all"),
                 ("Description", suite.description or "--"),
             ],
@@ -486,7 +481,7 @@ def _scenario_command(args: argparse.Namespace) -> int:
             name=args.name,
             description=args.description or "",
         )
-        print_success(f"Created scenario suite `{suite.suite_id}`.")
+        print_success(f"Created test suite `{suite.suite_id}`.")
         return 0
     if args.scenario_command == "run":
         return asyncio.run(_scenario_run_command(args))
@@ -529,7 +524,7 @@ def _promote_command(args: argparse.Namespace) -> int:
             suite_id=args.suite_id,
         )
     )
-    print_success(f"Promoted `{args.prompt}` to baseline with decision `{decision.decision_id}`.")
+    print_success(f"Shipped `{args.prompt}` to baseline with decision `{decision.decision_id}`.")
     return 0
 
 
@@ -543,8 +538,11 @@ def _setup_command(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pf",
-        description="PromptForge prompt evaluation CLI",
-        epilog="PromptForge commands: setup, status, doctor, prompts, scenario, review, promote, forge, run, compare, report",
+        description="PromptForge local prompt engineering toolkit",
+        epilog=(
+            "Commands: setup, status, doctor, prompts, tests/scenario, review, "
+            "ship/promote, app/forge, run, compare, report"
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -571,7 +569,11 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--b", required=True, help="Candidate prompt pack version or path")
     add_shared_args(compare_parser)
 
-    forge_parser = subparsers.add_parser("forge", help="Open the PromptForge macOS app for this project")
+    forge_parser = subparsers.add_parser(
+        "forge",
+        aliases=["app"],
+        help="Open the PromptForge macOS app for this project",
+    )
     forge_parser.add_argument("--project", default=".", help="PromptForge project root to open")
 
     prompts_parser = subparsers.add_parser("prompts", help="List or create prompt packs")
@@ -584,39 +586,47 @@ def build_parser() -> argparse.ArgumentParser:
     prompts_create_parser.add_argument("--name", default=None, help="Optional display name for the prompt pack")
     prompts_create_parser.set_defaults(prompts_command="create")
 
-    scenario_parser = subparsers.add_parser("scenario", help="List, inspect, create, and run scenario suites")
+    scenario_parser = subparsers.add_parser(
+        "scenario",
+        aliases=["tests"],
+        help="List, inspect, create, and run saved prompt test suites",
+    )
     scenario_subparsers = scenario_parser.add_subparsers(dest="scenario_command", required=True)
-    scenario_list_parser = scenario_subparsers.add_parser("list", help="List scenario suites")
+    scenario_list_parser = scenario_subparsers.add_parser("list", help="List saved test suites")
     scenario_list_parser.add_argument("--prompt", default=None, help="Optional prompt ref to filter linked suites")
     scenario_list_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
     scenario_list_parser.set_defaults(scenario_command="list")
-    scenario_show_parser = scenario_subparsers.add_parser("show", help="Show one scenario suite")
-    scenario_show_parser.add_argument("--suite", required=True, help="Scenario suite id")
+    scenario_show_parser = scenario_subparsers.add_parser("show", help="Show one saved test suite")
+    scenario_show_parser.add_argument("--suite", required=True, help="Test suite id")
     scenario_show_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
     scenario_show_parser.set_defaults(scenario_command="show")
-    scenario_create_parser = scenario_subparsers.add_parser("create", help="Create a scenario suite")
-    scenario_create_parser.add_argument("--suite", required=True, help="New scenario suite id")
+    scenario_create_parser = scenario_subparsers.add_parser("create", help="Create a saved test suite")
+    scenario_create_parser.add_argument("--suite", required=True, help="New test suite id")
     scenario_create_parser.add_argument("--prompt", default=None, help="Optional prompt ref to link")
     scenario_create_parser.add_argument("--name", default=None, help="Display name")
     scenario_create_parser.add_argument("--description", default="", help="Suite description")
     scenario_create_parser.set_defaults(scenario_command="create")
-    scenario_run_parser = scenario_subparsers.add_parser("run", help="Run a scenario suite against a prompt")
-    scenario_run_parser.add_argument("--suite", required=True, help="Scenario suite id")
+    scenario_run_parser = scenario_subparsers.add_parser("run", help="Run a saved test suite against a prompt")
+    scenario_run_parser.add_argument("--suite", required=True, help="Test suite id")
     scenario_run_parser.add_argument("--prompt", required=True, help="Prompt ref to evaluate")
     scenario_run_parser.add_argument("--repeats", type=int, default=None, help="Optional repeat count override")
     scenario_run_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
     scenario_run_parser.set_defaults(scenario_command="run")
 
-    review_parser = subparsers.add_parser("review", help="Show the latest recorded review for a prompt")
+    review_parser = subparsers.add_parser("review", help="Show the latest saved review for a prompt")
     review_parser.add_argument("--prompt", required=True, help="Prompt ref")
     review_parser.add_argument("--json", action=argparse.BooleanOptionalAction, default=False)
 
-    promote_parser = subparsers.add_parser("promote", help="Promote the current prompt workspace to baseline")
+    promote_parser = subparsers.add_parser(
+        "promote",
+        aliases=["ship"],
+        help="Ship the current prompt version to baseline",
+    )
     promote_parser.add_argument("--prompt", required=True, help="Prompt ref")
-    promote_parser.add_argument("--summary", default="Promoted current candidate to baseline.", help="Decision summary")
+    promote_parser.add_argument("--summary", default="Shipped current candidate to baseline.", help="Decision summary")
     promote_parser.add_argument("--rationale", default="", help="Optional rationale")
     promote_parser.add_argument("--review-id", default=None, help="Optional review id")
-    promote_parser.add_argument("--suite-id", default=None, help="Optional scenario suite id")
+    promote_parser.add_argument("--suite-id", default=None, help="Optional test suite id")
 
     report_parser = subparsers.add_parser("report", help="Print or rebuild a run report")
     report_parser.add_argument("--run", required=True, help="Run id")
@@ -642,17 +652,7 @@ def _provider_auth_status(provider: ProviderName) -> tuple[bool, str]:
         return bool(settings.openai_api_key), "OPENAI_API_KEY is set" if settings.openai_api_key else "OPENAI_API_KEY is missing"
     if provider == "openrouter":
         return bool(settings.openrouter_api_key), "OPENROUTER_API_KEY is set" if settings.openrouter_api_key else "OPENROUTER_API_KEY is missing"
-    codex_path = shutil.which(settings.codex_bin)
-    if codex_path is None:
-        return False, f"Codex CLI not found: {settings.codex_bin}"
-    result = subprocess.run(
-        [settings.codex_bin, "login", "status"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    detail = result.stdout.strip() or result.stderr.strip() or f"Codex CLI found at {codex_path}"
-    return result.returncode == 0, detail
+    return codex_login_status(settings.codex_bin)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -674,15 +674,15 @@ def main(argv: list[str] | None = None) -> int:
         return _status_command(args)
     if args.command == "doctor":
         return asyncio.run(_doctor_command(args))
-    if args.command == "forge":
+    if args.command in {"forge", "app"}:
         return _forge_command_sync(args)
     if args.command == "prompts":
         return _prompts_command(args)
-    if args.command == "scenario":
+    if args.command in {"scenario", "tests"}:
         return _scenario_command(args)
     if args.command == "review":
         return _review_command(args)
-    if args.command == "promote":
+    if args.command in {"promote", "ship"}:
         return _promote_command(args)
     parser.error(f"Unknown command: {args.command}")
     return 2

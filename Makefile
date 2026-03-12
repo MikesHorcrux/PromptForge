@@ -9,3 +9,6 @@ test:
 
 doctor:
 	. .venv/bin/activate && pf doctor
+
+app-build:
+	xcodebuild -project apps/macos/PromptForge/PromptForge.xcodeproj -scheme PromptForge -sdk macosx build CODE_SIGNING_ALLOWED=NO

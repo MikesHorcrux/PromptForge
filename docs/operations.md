@@ -120,7 +120,7 @@ copying:
 
 into the app resources through:
 
-- [apps/macos/PromptForge/scripts/bundle_engine.sh](../apps/macos/PromptForge/scripts/bundle_engine.sh)
+- [packaging/macos/bundle_engine.sh](../packaging/macos/bundle_engine.sh)
 
 Operational implication:
 
@@ -294,4 +294,4 @@ Do not delete casually:
 - [src/promptforge/forge/service.py](../src/promptforge/forge/service.py)
 - [src/promptforge/core/logging.py](../src/promptforge/core/logging.py)
 - [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)
-- [apps/macos/PromptForge/scripts/bundle_engine.sh](../apps/macos/PromptForge/scripts/bundle_engine.sh)
+- [packaging/macos/bundle_engine.sh](../packaging/macos/bundle_engine.sh)

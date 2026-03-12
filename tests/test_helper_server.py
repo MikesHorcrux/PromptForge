@@ -9,6 +9,7 @@ from promptforge.agents.prompt_judge.schemas import RubricJudgeOutput, RubricTra
 from promptforge.core.config import settings
 from promptforge.core.models import ModelExecutionResult, RunConfig, ScoringConfig
 from promptforge.helper.server import PromptForgeHelper
+from promptforge.runtime.codex_cli import CodexDeviceAuthResult
 
 
 class FakeForgeGateway:
@@ -326,7 +327,7 @@ def test_helper_status_degrades_when_codex_probe_fails(tmp_path, monkeypatch) ->
     def fail_codex(*args, **kwargs):
         raise subprocess.SubprocessError("xcrun: error: cannot be used within an App Sandbox.")
 
-    monkeypatch.setattr("promptforge.helper.server.subprocess.run", fail_codex)
+    monkeypatch.setattr("promptforge.runtime.codex_cli.subprocess.run", fail_codex)
 
     try:
         helper = PromptForgeHelper(project_root=tmp_path)
@@ -337,6 +338,41 @@ def test_helper_status_degrades_when_codex_probe_fails(tmp_path, monkeypatch) ->
         codex = refreshed["auth"]["connections"]["codex"]
         assert codex["ready"] is False
         assert "Codex status unavailable" in codex["detail"]
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_helper_exposes_structured_codex_auth_actions(tmp_path, monkeypatch) -> None:
+    original_cwd = Path.cwd()
+
+    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
+    monkeypatch.setattr(settings, "var_dir", Path("var"))
+    monkeypatch.setattr(settings, "codex_bin", "/tmp/bundled-codex")
+    monkeypatch.setattr("promptforge.helper.server.codex_login_status", lambda _: (True, "Logged in using ChatGPT"))
+    monkeypatch.setattr(
+        "promptforge.helper.server.codex_begin_device_auth",
+        lambda _: CodexDeviceAuthResult(
+            verification_uri="https://auth.openai.com/codex/device",
+            user_code="ABCD-EFGH",
+            instructions="Open https://auth.openai.com/codex/device and enter code ABCD-EFGH.",
+        ),
+    )
+    monkeypatch.setattr("promptforge.helper.server.codex_login_with_api_key", lambda _, api_key: (True, f"Logged in with {api_key}"))
+
+    try:
+        helper = PromptForgeHelper(project_root=tmp_path)
+
+        device_auth = asyncio.run(helper.handle("connections.codex.device_auth", {}))
+        assert device_auth["verification_uri"] == "https://auth.openai.com/codex/device"
+        assert device_auth["user_code"] == "ABCD-EFGH"
+        assert device_auth["auth"]["connections"]["codex"]["ready"] is True
+        assert device_auth["auth"]["connections"]["codex"]["source"] == "/tmp/bundled-codex"
+
+        api_key_login = asyncio.run(helper.handle("connections.codex.login_api_key", {"api_key": "sk-test-openai"}))
+        assert api_key_login["success"] is True
+        assert api_key_login["detail"] == "Logged in with sk-test-openai"
+        assert api_key_login["auth"]["connections"]["codex"]["ready"] is True
     finally:
         os.chdir(original_cwd)
 

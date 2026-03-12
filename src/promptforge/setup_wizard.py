@@ -11,6 +11,7 @@ from dotenv import dotenv_values, set_key
 
 from promptforge.core.config import settings
 from promptforge.core.models import ProviderName
+from promptforge.runtime.codex_cli import codex_login_status
 from promptforge.ui import print_banner, print_info, print_setup_summary, print_success, print_warning
 
 
@@ -37,24 +38,24 @@ def run_setup_wizard(
     _ensure_env_file(env_path=env_path, example_env_path=example_env_path)
     env_values = _load_env_values(env_path)
 
-    print_banner("Forge Attunement")
+    print_banner("Setup")
     print_info(f"Config file: {env_path}")
 
     provider = _prompt_choice(
-        "Choose the forge's default power source",
+        "Choose a default provider",
         ["openai", "codex", "openrouter"],
         default=env_values.get("PF_PROVIDER", settings.provider or "openai"),
         input_fn=input_fn,
     )
     same_judge_provider = _prompt_yes_no(
-        "Let the same power judge the trials?",
+        "Use the same provider for judging?",
         default=True,
         input_fn=input_fn,
     )
     judge_provider = provider
     if not same_judge_provider:
         judge_provider = _prompt_choice(
-            "Choose the judge's power source",
+            "Choose a judge provider",
             ["openai", "codex", "openrouter"],
             default=env_values.get("PF_JUDGE_PROVIDER") or provider,
             input_fn=input_fn,
@@ -144,7 +145,7 @@ def run_setup_wizard(
             check=False,
         )
     else:
-        print_info("Run `pf doctor` next to verify wards, auth, and model access.")
+        print_info("Run `pf doctor` next to verify auth, inputs, and model access.")
     return 0
 
 
@@ -374,11 +375,4 @@ def _configure_codex_login(
 
 
 def _codex_login_status(codex_bin: str) -> tuple[bool, str]:
-    result = subprocess.run(
-        [codex_bin, "login", "status"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    detail = result.stdout.strip() or result.stderr.strip() or "Unknown Codex login state"
-    return result.returncode == 0, detail
+    return codex_login_status(codex_bin)

@@ -155,7 +155,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 24) {
             Text("PromptForge")
                 .font(.system(size: 34, weight: .semibold))
-            Text("Open a project, edit prompts, run checks, and review changes.")
+            Text("Open a project, edit prompts, run tests, and review changes.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 560, alignment: .leading)
@@ -332,9 +332,9 @@ struct ContentView: View {
                         }
                     }
 
-                    NavigatorSection(title: "Cases") {
+                    NavigatorSection(title: "Tests") {
                         if model.scenarioSuites.isEmpty {
-                            NavigatorPlaceholder(text: "No saved cases yet")
+                            NavigatorPlaceholder(text: "No saved tests yet")
                         } else {
                             ForEach(model.scenarioSuites) { suite in
                                 Button {
@@ -342,7 +342,7 @@ struct ContentView: View {
                                 } label: {
                                     NavigatorRow(
                                         title: suite.name,
-                                        subtitle: "\(suite.cases.count) case(s)",
+                                        subtitle: "\(suite.cases.count) test case(s)",
                                         systemImage: "checklist",
                                         isSelected: resolvedSelection == .caseSet(suite.suiteID),
                                         indentation: 0
@@ -353,9 +353,9 @@ struct ContentView: View {
                         }
                     }
 
-                    NavigatorSection(title: "Results") {
+                    NavigatorSection(title: "Review") {
                         if model.reviews.isEmpty {
-                            NavigatorPlaceholder(text: "Run cases to create results")
+                            NavigatorPlaceholder(text: "Run tests to create a review")
                         } else {
                             ForEach(model.reviews.reversed()) { review in
                                 Button {
@@ -622,7 +622,7 @@ private struct WorkspaceTopBar: View {
                     actionButton("Check Prompt", systemImage: "bolt.horizontal", enabled: model.selectedPrompt != nil) {
                         model.runQuickBenchmark()
                     }
-                    actionButton("Run Cases", systemImage: "checklist", enabled: model.selectedPrompt != nil && model.selectedSuite != nil) {
+                    actionButton("Run Tests", systemImage: "checklist", enabled: model.selectedPrompt != nil && model.selectedSuite != nil) {
                         model.runScenarioReview()
                     }
                     actionButton("Try Input", systemImage: "play.square", enabled: model.selectedPrompt != nil) {
@@ -659,11 +659,11 @@ private struct WorkspaceTopBar: View {
         case .playground:
             return "\(model.currentPromptName) / Try Input"
         case .caseSet(let suiteID):
-            let suiteName = model.scenarioSuites.first(where: { $0.suiteID == suiteID })?.name ?? "Case Set"
-            return "\(model.projectName) / scenarios / \(suiteName)"
+            let suiteName = model.scenarioSuites.first(where: { $0.suiteID == suiteID })?.name ?? "Test Suite"
+            return "\(model.projectName) / tests / \(suiteName)"
         case .review(let reviewID):
-            let suiteName = model.reviews.first(where: { $0.reviewID == reviewID })?.suiteName ?? "Results"
-            return "\(model.projectName) / results / \(suiteName)"
+            let suiteName = model.reviews.first(where: { $0.reviewID == reviewID })?.suiteName ?? "Review"
+            return "\(model.projectName) / review / \(suiteName)"
         case nil:
             return model.currentPromptName.isEmpty ? model.projectName : model.currentPromptName
         }
@@ -688,17 +688,17 @@ private struct WorkspaceTopBar: View {
         switch selection {
         case .promptFile(let file):
             if file == "system.md" || file == "user_template.md" {
-                return "This is the live prompt document. Edit it here, ask Forgie in the next pane, then run checks from the toolbar."
+                return "This is the live prompt document. Edit it here, ask the agent in the next pane, then run checks from the toolbar."
             }
             return "This file is part of the prompt pack. Edit metadata here, use the inspector for context, and run checks from the toolbar."
         case .playground:
-            return "Try one-off inputs here before turning them into saved cases. Promote useful examples into Cases when they become part of the product contract."
+            return "Try one-off inputs here before turning them into saved tests. Promote useful examples into Tests when they become part of the product contract."
         case .caseSet:
-            return "Case sets are saved product tests. Edit examples and checks here, then run them against the current prompt and the baseline."
+            return "Test suites are saved product tests. Edit examples and checks here, then run them against the current prompt and the baseline."
         case .review:
-            return "Results compares the current prompt against the baseline and shows regressions, diffs, and decision history."
+            return "Review compares the current prompt against the baseline and shows regressions, diffs, and decision history."
         case nil:
-            return "Open a prompt pack from the navigator, edit its files, define saved cases, and inspect results in one workspace."
+            return "Open a prompt pack from the navigator, edit its files, define saved tests, and inspect review results in one workspace."
         }
     }
 
@@ -800,7 +800,7 @@ private struct WorkspaceInspectorPane: View {
                     reviewInspector
                 case nil:
                     PanelCard(title: "Inspector") {
-                        Text("Open a prompt pack, case set, or result to inspect its metadata here.")
+                        Text("Open a prompt pack, test suite, or review to inspect its metadata here.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -832,8 +832,8 @@ private struct WorkspaceInspectorPane: View {
 
                 HStack(spacing: 10) {
                     SoftBadge(label: "Provider", value: model.providerLine)
-                    SoftBadge(label: "Cases", value: "\(model.scenarioSuites.count)")
-                    SoftBadge(label: "Results", value: "\(model.reviews.count)")
+                    SoftBadge(label: "Tests", value: "\(model.scenarioSuites.count)")
+                    SoftBadge(label: "Reviews", value: "\(model.reviews.count)")
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -860,20 +860,20 @@ private struct WorkspaceInspectorPane: View {
 
     @ViewBuilder
     private var casesInspector: some View {
-        PanelCard(title: "Cases") {
+        PanelCard(title: "Tests") {
             VStack(alignment: .leading, spacing: 12) {
                 if let suite = model.activeScenarioSuite {
-                    Text("This saved case set is the product contract for `\(suite.name)`. Edit the suite here, keep the selected case in the editor, and run it when you want a real answer on regressions.")
+                    Text("This saved test suite is the product contract for `\(suite.name)`. Edit the suite here, keep the selected case in the editor, and run it when you want a real answer on regressions.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Select a case set from the navigator to inspect and edit it.")
+                    Text("Select a test suite from the navigator to inspect and edit it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 8) {
-                    Button("Run Case Set") {
+                    Button("Run Tests") {
                         model.runScenarioReview()
                     }
                     .buttonStyle(.borderedProminent)
@@ -899,7 +899,7 @@ private struct WorkspaceInspectorPane: View {
         if let review = model.latestReview {
             PanelCard(title: "Run Summary") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("This result compares the current candidate against the baseline on the selected case set.")
+                    Text("This review compares the current candidate against the baseline on the selected test suite.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -912,11 +912,11 @@ private struct WorkspaceInspectorPane: View {
                     HStack(spacing: 10) {
                         SoftBadge(label: "Score Delta", value: review.scoreDelta.map { String(format: "%.2f", $0) } ?? "--")
                         SoftBadge(label: "Pass Rate Delta", value: review.passRateDelta.map { String(format: "%.2f", $0) } ?? "--")
-                        SoftBadge(label: "Cases", value: "\(review.cases.count)")
+                        SoftBadge(label: "Tests", value: "\(review.cases.count)")
                     }
 
                     HStack(spacing: 8) {
-                        Button("Promote Candidate") {
+                        Button("Ship Candidate") {
                             model.promoteCurrentCandidate()
                         }
                         .buttonStyle(.borderedProminent)
@@ -962,7 +962,7 @@ private struct WorkspaceInspectorPane: View {
             }
         } else {
             PanelCard(title: "Run Summary") {
-                Text("Run a case set first to populate review results and decisions.")
+                Text("Run a test suite first to populate review results and decisions.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -1040,9 +1040,9 @@ private struct CasesWorkspacePane: View {
     var body: some View {
         if model.activeScenarioSuite == nil {
             VStack(alignment: .leading, spacing: 14) {
-                Text("No Case Set Selected")
+                Text("No Test Suite Selected")
                     .font(.title2.weight(.semibold))
-                Text("Pick a case set from the navigator or create one from the command bar.")
+                Text("Pick a test suite from the navigator or create one from the command bar.")
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1056,7 +1056,7 @@ private struct CasesWorkspacePane: View {
                 VStack(spacing: 0) {
                     DocumentHeaderBar(
                         title: model.selectedScenarioCase?.title.isEmpty == false ? (model.selectedScenarioCase?.title ?? "Case") : (model.selectedScenarioCase?.caseID ?? "Case"),
-                        subtitle: "Edit the selected case. Its checks define the saved product contract for this prompt.",
+                        subtitle: "Edit the selected case. Its checks define the saved test contract for this prompt.",
                         accessory: model.selectedScenarioCase?.caseID
                     )
                     Divider()
@@ -1084,9 +1084,9 @@ private struct ResultsWorkspacePane: View {
             HSplitView {
                 VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Result Cases")
+                        Text("Review Cases")
                             .font(.headline)
-                        Text("Review `\(review.suiteName)` case-by-case. Regressions and flaky outputs are called out here before you promote or keep iterating.")
+                        Text("Review `\(review.suiteName)` case-by-case. Regressions and flaky outputs are called out here before you ship or keep iterating.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1117,7 +1117,7 @@ private struct ResultsWorkspacePane: View {
                             if let reviewCase = model.selectedReviewCase {
                                 ReviewCaseDetail(reviewCase: reviewCase)
                             } else {
-                                PanelCard(title: "Result Detail") {
+                                PanelCard(title: "Review Detail") {
                                     Text("Select a review case to inspect its diff, outputs, and checks.")
                                         .foregroundStyle(.secondary)
                                 }
@@ -1132,9 +1132,9 @@ private struct ResultsWorkspacePane: View {
             .background(canvasBackground)
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                Text("No Results Yet")
+                Text("No Review Yet")
                     .font(.title2.weight(.semibold))
-                Text("Run a case set to compare the current prompt against the baseline and inspect regressions here.")
+                Text("Run a test suite to compare the current prompt against the baseline and inspect regressions here.")
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1172,7 +1172,7 @@ private struct PromptMetadataDocument: View {
                                 LabeledField(label: "Audience", text: $model.promptDraft.audience)
                             }
 
-                            LabeledField(label: "Primary Case Sets", text: primarySuitesBinding)
+                            LabeledField(label: "Primary Test Suites", text: primarySuitesBinding)
                             LabeledTextEditor(label: "Release Notes", text: $model.promptDraft.releaseNotes, minHeight: 90, font: .system(.body, design: .default))
                         }
                     }
@@ -1557,9 +1557,9 @@ private struct BuilderControlsCard: View {
     private let researchPolicies = ["prompt_only", "allow_external"]
 
     var body: some View {
-        PanelCard(title: "Forgie") {
+        PanelCard(title: "Agent") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Forgie the forge fox can either stage edits for review or apply them directly. Keep the controls small and stay focused on the prompt.")
+                Text("The agent can either stage edits for review or apply them directly. Keep the controls small and stay focused on the prompt.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1602,9 +1602,9 @@ private struct StudioChatPane: View {
                     HStack(spacing: 10) {
                         ForgieStatusGlyph(active: model.isBusy)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Forgie")
+                            Text("Agent")
                                 .font(.headline)
-                            Text("The forge fox for edits, failures, and prompt review. System activity lives in the inspector so this thread stays conversational.")
+                            Text("Use the agent for edits, failures, and prompt review. System activity lives in the inspector so this thread stays conversational.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -1650,9 +1650,9 @@ private struct StudioChatPane: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if conversationEntries.isEmpty {
-                            PanelCard(title: "Ask Forgie") {
+                            PanelCard(title: "Ask The Agent") {
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Text("Try asking Forgie:")
+                                    Text("Try asking:")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
                                     Text("Tighten the tone and make the refund policy clearer.")
@@ -1689,7 +1689,7 @@ private struct StudioChatPane: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 10) {
-                TextField("Ask Forgie to edit, explain, or review the prompt", text: $model.draftMessage, axis: .vertical)
+                TextField("Ask the agent to edit, explain, or review the prompt", text: $model.draftMessage, axis: .vertical)
                     .textFieldStyle(.plain)
                     .padding(12)
                     .background(inputBackground, in: RoundedRectangle(cornerRadius: 12))
@@ -1774,9 +1774,9 @@ private struct BuilderActionsCard: View {
     @EnvironmentObject private var model: PromptForgeAppModel
 
     var body: some View {
-        PanelCard(title: "Builder Activity") {
+        PanelCard(title: "Agent Activity") {
             if model.builderActions.isEmpty {
-                Text("Forgie has not recorded any builder actions yet.")
+                Text("The agent has not recorded any actions yet.")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -1895,13 +1895,13 @@ private struct CommandPaletteSheet: View {
 
     private func commandItems() -> [CommandPaletteItem] {
         var commands: [CommandPaletteItem] = [
-            .init(id: "settings", title: "Open Settings", subtitle: "Project, models, auth, and Forgie defaults", isEnabled: true),
+            .init(id: "settings", title: "Open Settings", subtitle: "Project, models, auth, and agent defaults", isEnabled: true),
             .init(id: "new_prompt", title: "New Prompt", subtitle: "Create a new prompt pack", isEnabled: true),
-            .init(id: "new_suite", title: "New Suite", subtitle: "Create a new scenario suite", isEnabled: model.selectedPrompt != nil),
-            .init(id: "save_workspace", title: "Save Workspace", subtitle: "Persist prompt metadata and prompt files", isEnabled: model.selectedPrompt != nil),
-            .init(id: "quick_check", title: "Quick Check", subtitle: "Run the benchmark on the active prompt", isEnabled: model.selectedPrompt != nil),
-            .init(id: "run_suite", title: "Run Suite", subtitle: "Run the selected scenario suite and open review", isEnabled: model.selectedPrompt != nil && model.selectedSuite != nil),
-            .init(id: "playground", title: "Run Playground", subtitle: "Generate samples for the current scratch input", isEnabled: model.selectedPrompt != nil),
+            .init(id: "new_suite", title: "New Test Suite", subtitle: "Create a saved prompt test suite", isEnabled: model.selectedPrompt != nil),
+            .init(id: "save_workspace", title: "Save Prompt", subtitle: "Persist prompt metadata and prompt files", isEnabled: model.selectedPrompt != nil),
+            .init(id: "quick_check", title: "Quick Check", subtitle: "Run the quick test lane on the active prompt", isEnabled: model.selectedPrompt != nil),
+            .init(id: "run_suite", title: "Run Tests", subtitle: "Run the selected test suite and open review", isEnabled: model.selectedPrompt != nil && model.selectedSuite != nil),
+            .init(id: "playground", title: "Try Input", subtitle: "Generate samples for the current scratch input", isEnabled: model.selectedPrompt != nil),
         ]
         commands.append(contentsOf: model.prompts.map { prompt in
             CommandPaletteItem(
@@ -1955,7 +1955,7 @@ private struct ForgieOnboardingCard: View {
         HStack(spacing: 18) {
             ForgieMark(size: 120, active: true)
             VStack(alignment: .leading, spacing: 8) {
-                Text("Forgie")
+                Text("Agent")
                     .font(.system(size: 24, weight: .semibold))
                 Text("Your editing agent for prompts, checks, and reviews.")
                     .foregroundStyle(.secondary)
@@ -2087,7 +2087,7 @@ private struct ScenarioCaseNavigator: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Each case is a saved product example. Run Cases compares the current prompt against the baseline on these same inputs.")
+                Text("Each case is a saved product example. Run Tests compares the current prompt against the baseline on these same inputs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 8) {
@@ -2135,17 +2135,17 @@ private struct ScenarioIDEPane: View {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 12) {
-                        Text(model.activeScenarioSuite?.name ?? "Case Set")
+                        Text(model.activeScenarioSuite?.name ?? "Test Suite")
                             .font(.headline)
                         Text(model.activeScenarioSuite?.suiteID ?? "--")
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Run Cases") {
+                        Button("Run Tests") {
                             model.runScenarioReview()
                         }
                         .buttonStyle(.borderedProminent)
-                        Button("Save Case Set") {
+                        Button("Save Test Suite") {
                             model.saveScenarioSuite()
                         }
                         .buttonStyle(.bordered)
@@ -2153,12 +2153,12 @@ private struct ScenarioIDEPane: View {
 
                     HStack(spacing: 10) {
                         FlowStep(label: "1", text: "Edit cases")
-                        FlowStep(label: "2", text: "Run cases")
-                        FlowStep(label: "3", text: "Inspect results")
+                        FlowStep(label: "2", text: "Run tests")
+                        FlowStep(label: "3", text: "Inspect review")
                     }
 
                     if let suite = model.activeScenarioSuite {
-                        Text("Current case set: \(suite.name). Running cases will execute this set against the current prompt and the baseline, then open Results.")
+                        Text("Current test suite: \(suite.name). Running tests will execute this set against the current prompt and the baseline, then open Review.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -2188,18 +2188,18 @@ private struct ScenarioSuiteEditor: View {
 
     var body: some View {
             VStack(alignment: .leading, spacing: 12) {
-            LabeledField(label: "Case Set Name", text: suiteBinding(\.name))
+            LabeledField(label: "Test Suite Name", text: suiteBinding(\.name))
             LabeledTextEditor(label: "What This Set Covers", text: suiteBinding(\.description), minHeight: 80, font: .system(.body, design: .default))
             LabeledField(label: "Prompts In Scope", text: linkedPromptsBinding)
 
             HStack(spacing: 10) {
                 if let suite = model.activeScenarioSuite {
-                    SoftBadge(label: "Cases", value: "\(suite.cases.count)")
+                    SoftBadge(label: "Tests", value: "\(suite.cases.count)")
                     SoftBadge(label: "Set ID", value: suite.suiteID)
                 }
             }
 
-            Text("Run Cases executes every saved case against the current prompt and the baseline, then opens Results with pass/fail checks and regressions.")
+            Text("Run Tests executes every saved case against the current prompt and the baseline, then opens Review with pass/fail checks and regressions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2652,7 +2652,7 @@ private struct SettingsSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(model.isOnboarding ? "Welcome to PromptForge" : "Settings")
                 .font(.system(size: 28, weight: .semibold))
-            Text(model.isOnboarding ? "Set up providers, default models, and how Forgie should work in this project." : "Update project defaults, model choices, and builder-agent behavior.")
+            Text(model.isOnboarding ? "Set up providers, default models, and how the agent should work in this project." : "Update project defaults, model choices, and agent behavior.")
                 .foregroundStyle(.secondary)
             if let notice = model.settingsNotice {
                 Text(notice)
@@ -2671,9 +2671,9 @@ private struct SettingsSheet: View {
         SettingsCard(title: model.isOnboarding ? "1. Project" : "Project") {
             TextField("Project name", text: $model.settingsDraft.projectName)
             TextField("Quick check dataset", text: $model.settingsDraft.quickBenchmarkDataset)
-            TextField("Full suite dataset", text: $model.settingsDraft.fullEvaluationDataset)
+            TextField("Full evaluation dataset", text: $model.settingsDraft.fullEvaluationDataset)
             Stepper("Quick check repeats: \(model.settingsDraft.quickBenchmarkRepeats)", value: $model.settingsDraft.quickBenchmarkRepeats, in: 1 ... 5)
-            Stepper("Full suite repeats: \(model.settingsDraft.fullEvaluationRepeats)", value: $model.settingsDraft.fullEvaluationRepeats, in: 1 ... 5)
+            Stepper("Full evaluation repeats: \(model.settingsDraft.fullEvaluationRepeats)", value: $model.settingsDraft.fullEvaluationRepeats, in: 1 ... 5)
         }
     }
 
@@ -2702,7 +2702,7 @@ private struct SettingsSheet: View {
     }
 
     private var builderSection: some View {
-        SettingsCard(title: model.isOnboarding ? "3. Forgie" : "Forgie") {
+        SettingsCard(title: model.isOnboarding ? "3. Agent" : "Agent") {
             Picker("Permission mode", selection: $model.settingsDraft.builderPermissionMode) {
                 ForEach(permissionModes, id: \.self) { mode in
                     Text(mode.replacingOccurrences(of: "_", with: " ")).tag(mode)
@@ -2754,8 +2754,12 @@ private struct SettingsSheet: View {
                     }
                     if status.id == "codex" {
                         HStack {
-                            Button("Authenticate Codex") {
-                                model.launchCodexLogin()
+                            Button("Use OpenAI Key") {
+                                model.authenticateCodexWithOpenAIKey()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            Button("Device Code") {
+                                model.beginCodexDeviceAuth()
                             }
                             .buttonStyle(.bordered)
                             Button("Refresh Status") {

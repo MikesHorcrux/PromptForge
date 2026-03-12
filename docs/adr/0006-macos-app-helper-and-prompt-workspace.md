@@ -63,7 +63,7 @@ Tradeoffs:
 - App shell: [../../apps/macos/PromptForge/PromptForge/ContentView.swift](../../apps/macos/PromptForge/PromptForge/ContentView.swift)
 - App model and helper client: [../../apps/macos/PromptForge/PromptForge/Item.swift](../../apps/macos/PromptForge/PromptForge/Item.swift)
 - App runtime locator: [../../apps/macos/PromptForge/PromptForge/PromptForgeApp.swift](../../apps/macos/PromptForge/PromptForge/PromptForgeApp.swift)
-- Bundled runtime build script: [../../apps/macos/PromptForge/scripts/bundle_engine.sh](../../apps/macos/PromptForge/scripts/bundle_engine.sh)
+- Bundled runtime build script: [../../packaging/macos/bundle_engine.sh](../../packaging/macos/bundle_engine.sh)
 - Helper RPC surface: [../../src/promptforge/helper/server.py](../../src/promptforge/helper/server.py)
 - Workspace service: [../../src/promptforge/forge/workspace.py](../../src/promptforge/forge/workspace.py)
 - Forge session behavior: [../../src/promptforge/forge/service.py](../../src/promptforge/forge/service.py)
