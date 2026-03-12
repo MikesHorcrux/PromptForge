@@ -1001,7 +1001,12 @@ final class PromptForgeAppModel: ObservableObject {
     }
 
     func createPromptShortcut() {
-        submitText("/new draft-\(Int(Date().timeIntervalSince1970))")
+        guard let creation = promptCreationRequest() else {
+            return
+        }
+        Task {
+            await createPrompt(creation.version, displayName: creation.displayName, fromPrompt: nil)
+        }
     }
 
     func importPromptPack() {
@@ -1643,14 +1648,18 @@ final class PromptForgeAppModel: ObservableObject {
         }
     }
 
-    private func createPrompt(_ name: String, fromPrompt: String?) async {
+    private func createPrompt(_ name: String, displayName: String? = nil, fromPrompt: String?) async {
         guard let helper else { return }
         isBusy = true
         defer { isBusy = false }
         do {
             _ = try await helper.send(
                 method: "prompts.create",
-                params: ["prompt": name, "from_prompt": fromPrompt as Any]
+                params: [
+                    "prompt": name,
+                    "name": displayName as Any,
+                    "from_prompt": fromPrompt as Any,
+                ]
             )
             try await refreshPrompts()
             await openPrompt(name, announce: true)
@@ -1658,6 +1667,69 @@ final class PromptForgeAppModel: ObservableObject {
         } catch {
             appendTranscript(.warning, "Create prompt", error.localizedDescription)
         }
+    }
+
+    private func promptCreationRequest() -> (version: String, displayName: String)? {
+        let alert = NSAlert()
+        alert.messageText = "New Prompt"
+        alert.informativeText = "Choose a name for the prompt. PromptForge will create a clean internal id automatically."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        input.placeholderString = "Support Policy Responder"
+        input.stringValue = suggestedPromptName()
+        alert.accessoryView = input
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else {
+            return nil
+        }
+
+        let displayName = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !displayName.isEmpty else {
+            appendTranscript(.warning, "Create prompt", "Prompt name cannot be empty.")
+            return nil
+        }
+
+        return (
+            version: uniquePromptVersion(for: displayName),
+            displayName: displayName
+        )
+    }
+
+    private func suggestedPromptName() -> String {
+        let existingNames = Set(prompts.map(\.name))
+        var index = prompts.count + 1
+        while true {
+            let candidate = "Untitled Prompt \(index)"
+            if !existingNames.contains(candidate) {
+                return candidate
+            }
+            index += 1
+        }
+    }
+
+    private func uniquePromptVersion(for displayName: String) -> String {
+        let existingVersions = Set(prompts.map(\.version))
+        let base = slugifyPromptVersion(displayName)
+        var candidate = base
+        var suffix = 2
+        while existingVersions.contains(candidate) {
+            candidate = "\(base)-\(suffix)"
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func slugifyPromptVersion(_ value: String) -> String {
+        let lowered = value.lowercased()
+        let pieces = lowered.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        let slug = pieces
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return slug.isEmpty ? "prompt" : slug
     }
 
     private func clonePrompt(source: String, target: String) async {

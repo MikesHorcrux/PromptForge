@@ -101,8 +101,12 @@ def test_workspace_service_lists_creates_and_tracks_sessions(tmp_path, monkeypat
     cloned = workspace.create_prompt("draft-copy", from_prompt="v1")
     assert cloned.exists()
 
-    prompt_versions = [prompt.version for prompt in workspace.list_prompts()]
+    prompt_summaries = workspace.list_prompts()
+    prompt_versions = [prompt.version for prompt in prompt_summaries]
     assert prompt_versions == ["draft-copy", "draft-support", "v1"]
+    prompt_names = {prompt.version: prompt.name for prompt in prompt_summaries}
+    assert prompt_names["draft-support"] == "Draft Support"
+    assert prompt_names["draft-copy"] == "Draft Copy"
 
     visible = workspace.load_visible_prompt("v1")
     assert "You are" in visible.system_prompt

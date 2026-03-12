@@ -142,7 +142,7 @@ class ForgeWorkspaceService:
             manifest_path = destination / "manifest.yaml"
             manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
             manifest["version"] = version
-            manifest["name"] = name or f"{version} prompt"
+            manifest["name"] = name or self._default_prompt_name(version)
             manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
             ensure_prompt_brief(destination, description=manifest.get("description", ""))
             return destination
@@ -151,8 +151,8 @@ class ForgeWorkspaceService:
         manifest = {
             "apiVersion": 1,
             "version": version,
-            "name": name or f"{version} prompt",
-            "description": "New prompt pack created from the forge workspace.",
+            "name": name or self._default_prompt_name(version),
+            "description": "New prompt created from the app workspace.",
             "output_format": "markdown",
             "required_sections": [],
         }
@@ -187,6 +187,12 @@ class ForgeWorkspaceService:
             ),
         )
         return destination
+
+    def _default_prompt_name(self, version: str) -> str:
+        parts = [part for part in version.replace("_", "-").split("-") if part]
+        if not parts:
+            return "Prompt"
+        return " ".join(part.capitalize() for part in parts)
 
     def import_prompt(self, source_path: str | Path) -> Path:
         source_pack = load_prompt_pack(Path(source_path).expanduser())
