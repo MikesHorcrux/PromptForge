@@ -1,124 +1,172 @@
-# Testing and Quality
+# Testing And Quality
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge’s automated quality bar is currently test-driven around contracts,
-not around live provider traffic.
+PromptForge is tested primarily at the contract and orchestration layers.
 
-That is a deliberate choice in the current repo state:
+That is deliberate:
 
-- contract logic is unit tested
-- orchestration is integration-tested with a fake gateway
-- live provider health is checked manually via `pf doctor`
+- prompt behavior depends on external providers
+- reproducible local workflow matters more than live-provider CI
+- fake gateways make prompt-workspace and runtime tests deterministic
 
-## How to run checks
+## Test Strategy
 
-### Unit and integration-style tests
+```mermaid
+flowchart TB
+  Unit["Contract tests<br/>loaders, rules, cache"] --> Workflow["Workflow tests<br/>run service, forge session, helper"]
+  Workflow --> Packaging["App/runtime locator tests"]
+  Packaging --> Manual["Manual checks<br/>doctor, app build, provider smoke"]
+```
+
+## How To Run Checks
+
+### Python test suite
 
 ```bash
 . .venv/bin/activate
 pytest -q
 ```
 
-### Provider and environment preflight
+### macOS app tests
+
+```bash
+xcodebuild \
+  -project apps/macos/PromptForge/PromptForge.xcodeproj \
+  -scheme PromptForge \
+  -configuration Debug \
+  -derivedDataPath apps/macos/PromptForge/build \
+  test
+```
+
+### Environment and provider preflight
 
 ```bash
 pf doctor
 pf doctor --provider codex --judge-provider codex --model gpt-5-mini
 ```
 
-### Smoke scripts
+### Optional smoke scripts
 
 ```bash
 python -m promptforge.scripts.smoke_openai
 python -m promptforge.scripts.smoke_eval
 ```
 
-Notes:
-
-- `smoke_openai` only exercises direct OpenAI auth
-- `smoke_eval` uses the configured provider and judge provider from `.env`
-
-## Current automated coverage
+## Automated Coverage
 
 | Test file | What it verifies |
 |---|---|
-| `tests/test_prompt_loader.py` | Prompt pack loading, schema validation path, and Jinja render behavior |
-| `tests/test_helper_server.py` | Helper RPC contract, settings, prompt save/load, prompt history, event streaming, and agent chat behavior |
-| `tests/test_scoring_rules.py` | Missing section detection and invalid JSON hard-fail logic |
-| `tests/test_cache_and_compare.py` | SQLite cache round-trip and comparison preference for non-hard-failing outputs |
-| `tests/test_run_service.py` | End-to-end run and compare artifact generation with a fake gateway |
-| `tests/test_setup_wizard.py` | OpenAI setup flow and Codex login launch behavior |
-| `tests/test_codex_gateway.py` | Codex output-schema normalization for structured judge responses |
+| `tests/test_prompt_loader.py` | prompt-pack loading, schema validation, render contract |
+| `tests/test_scoring_rules.py` | deterministic rule checks and hard-fail behavior |
+| `tests/test_cache_and_compare.py` | SQLite cache persistence and comparison-winner logic |
+| `tests/test_run_service.py` | evaluation and comparison artifact generation |
+| `tests/test_forge_session.py` | revisions, staged edits, rollback-safe apply flow, benchmarks, exports |
+| `tests/test_workspace_service.py` | workspace-level prompt, scenario, playground, and decision flows |
+| `tests/test_helper_server.py` | helper RPC contract, empty-project behavior, status/settings, event stream |
+| `tests/test_setup_wizard.py` | onboarding flow and auth prompts |
+| `tests/test_codex_gateway.py` | Codex schema normalization and timeout process cleanup |
+| `tests/test_cli.py` | CLI parser and scenario/review/promote command flows |
+| `apps/macos/PromptForge/PromptForgeTests/PromptForgeTests.swift` | launch argument parsing and bundled runtime locator behavior |
 
-## Covered vs uncovered
+## Coverage Map
 
-### Covered well
+```mermaid
+flowchart LR
+  Loader["prompt loaders"] --> Runtime["run service"]
+  Runtime --> Forge["forge session + workspace"]
+  Forge --> Helper["helper server"]
+  Helper --> App["app runtime locator tests"]
+  Rules["scoring rules"] --> Runtime
+  Cache["response cache"] --> Runtime
+  CLI["CLI parser"] --> Runtime
+```
 
-- prompt pack loading contract
-- helper RPC contract and fake-gateway workspace behavior
-- dataset rendering path
-- hard-fail rules
-- cache persistence
+## Covered Well
+
+- prompt-pack contract loading
+- dataset render path
+- deterministic rule checks
+- cache round-trips
 - comparison winner logic
-- setup wizard file writes
 - run artifact creation
+- helper RPC behavior
+- empty-project helper/app contract
+- forge revisions and staged edit safety
+- Codex timeout cleanup
+- workspace scenario/playground/review flows
+- app runtime selection for bundled vs explicit engine roots
 
-### Not covered well yet
+## Covered Less Well
 
-- live OpenAI provider execution in CI
-- live OpenRouter provider execution in CI
-- live Codex provider execution in CI
-- performance or load testing
-- artifact backward compatibility across versions
-- log content assertions
-- failure-threshold behavior under large concurrent datasets
-- app-level UI behavior and launch-time integration in CI
+- live OpenAI provider behavior in CI
+- live OpenRouter provider behavior in CI
+- live Codex provider behavior in CI
+- UI-level behavior and layout regressions
+- performance under large datasets
+- artifact backward-compatibility across long-lived versions
+- package reproducibility for release builds
+- project-root/cwd assumptions across multiple simultaneous projects
 
-## Quality model
+## Quality Model
 
-PromptForge currently relies on four layers of quality defense:
+PromptForge uses four defenses:
 
-1. input validation
+1. input and schema validation
 2. deterministic rule checks
 3. structured rubric judging
-4. human-readable run artifacts for review
+4. durable human-readable artifacts
 
-That means a run can still "succeed" operationally while surfacing a bad prompt
-through hard fails or low scores. Operational success and prompt quality are not
-the same thing.
+That means:
 
-## Release readiness checklist
+- a run can succeed operationally while the prompt still fails quality gates
+- a judge failure can degrade scoring fidelity without crashing the whole run
+- comparison can prefer the prompt that avoids hard-fails, even if prose style looks less polished
 
-Before cutting a release or promoting a prompt pack:
+## Release Readiness Checklist
 
 - [ ] `pytest -q` passes
-- [ ] `pf doctor` passes for the target provider path
+- [ ] app tests pass if macOS app code changed
+- [ ] `pf doctor` passes for the intended provider path
 - [ ] at least one representative `pf run` completes cleanly
-- [ ] if comparing versions, `pf compare` produces a clear report
+- [ ] if comparing versions, `pf compare` produces an understandable report
 - [ ] `run.lock.json` reflects the intended provider, model, and hashes
-- [ ] `scores.json` has no unexpected warnings
-- [ ] generated artifacts are acceptable to share with stakeholders
-- [ ] `.env` and logs contain no exposed secrets
+- [ ] warnings in `scores.json` and `run.lock.json` are understood
+- [ ] bundled app launches with a valid packaged runtime
+- [ ] generated reports are acceptable to share
+- [ ] local logs and artifacts do not expose secrets
 
-## Recommendations for the next quality tier
+## Recommended Manual Checks Before Public Release
 
-If the project grows, add:
+- build `PromptForge.app`
+- launch the built app outside the development repo context
+- open an empty project and confirm onboarding works
+- open an existing project and run:
+  - quick check
+  - scenario review
+  - playground run
+- validate the Settings connection refresh path
 
-- fixture datasets that cover JSON output mode
-- live-provider smoke tests gated by CI secrets
-- regression snapshots for report structure
-- a synthetic large dataset for concurrency and failure-threshold tests
-- explicit schema compatibility tests for artifact readers
+## Current Quality Risks
 
-## Source of truth
+These are important even though the code is functional:
 
-- [`../tests/test_prompt_loader.py`](../tests/test_prompt_loader.py)
-- [`../tests/test_helper_server.py`](../tests/test_helper_server.py)
-- [`../tests/test_scoring_rules.py`](../tests/test_scoring_rules.py)
-- [`../tests/test_cache_and_compare.py`](../tests/test_cache_and_compare.py)
-- [`../tests/test_run_service.py`](../tests/test_run_service.py)
-- [`../tests/test_setup_wizard.py`](../tests/test_setup_wizard.py)
-- [`../tests/test_codex_gateway.py`](../tests/test_codex_gateway.py)
-- [`../src/promptforge/scripts/smoke_openai.py`](../src/promptforge/scripts/smoke_openai.py)
-- [`../src/promptforge/scripts/smoke_eval.py`](../src/promptforge/scripts/smoke_eval.py)
+- release packaging still depends on the local engine tree and local `.venv`
+- the helper/runtime still rely on project cwd in several code paths
+- legacy `prompt_blocks` compatibility still exists in the prompt metadata contract even though the current UI is file-first
+
+Those are production-readiness concerns, not broken examples.
+
+## Source Of Truth
+
+- [tests/test_prompt_loader.py](../tests/test_prompt_loader.py)
+- [tests/test_scoring_rules.py](../tests/test_scoring_rules.py)
+- [tests/test_cache_and_compare.py](../tests/test_cache_and_compare.py)
+- [tests/test_run_service.py](../tests/test_run_service.py)
+- [tests/test_forge_session.py](../tests/test_forge_session.py)
+- [tests/test_workspace_service.py](../tests/test_workspace_service.py)
+- [tests/test_helper_server.py](../tests/test_helper_server.py)
+- [tests/test_setup_wizard.py](../tests/test_setup_wizard.py)
+- [tests/test_codex_gateway.py](../tests/test_codex_gateway.py)
+- [tests/test_cli.py](../tests/test_cli.py)
+- [apps/macos/PromptForge/PromptForgeTests/PromptForgeTests.swift](../apps/macos/PromptForge/PromptForgeTests/PromptForgeTests.swift)

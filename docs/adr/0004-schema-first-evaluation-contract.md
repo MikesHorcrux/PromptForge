@@ -1,6 +1,6 @@
 # ADR-0004: Schema-first Contracts for Prompt Packs, Datasets, and Artifacts
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
 - Status: Accepted
 

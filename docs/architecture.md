@@ -1,180 +1,203 @@
 # Architecture
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge is a local, macOS-first prompt engineering system with a Python
-engine. The app is the primary interactive surface. The CLI remains the setup,
-status, and batch execution surface.
+PromptForge is a local prompt engineering system with two user-facing surfaces:
 
-It is intentionally narrow:
+- a CLI for setup, health checks, batch evaluation, comparison, reporting, and scenario operations
+- a macOS app for interactive prompt authoring, Forgie chat, case editing, and result review
 
-- No hosted backend
-- No external database beyond a local SQLite cache
-- No approval or multi-user control plane
+Everything runs against a local project folder. There is no hosted backend.
 
-The implementation now centers on:
-
-- macOS app shell in `apps/macos/PromptForge/`
-- local helper in `src/promptforge/helper/server.py`
-- project metadata in `src/promptforge/project.py`
-- per-prompt workspace metadata in `src/promptforge/prompts/brief.py`
-- forge session orchestration in `src/promptforge/forge/service.py`
-- batch execution in `src/promptforge/runtime/run_service.py`
-- provider abstraction in `src/promptforge/runtime/gateway.py`
-- persisted artifacts in `src/promptforge/runtime/artifacts.py`
-- local response caching in `src/promptforge/runtime/cache.py`
-
-## System overview
+## System Overview
 
 ```mermaid
 flowchart LR
-  User["Developer"] --> CLI["pf CLI"]
+  User["Developer or operator"] --> CLI["pf CLI"]
   User --> App["PromptForge.app"]
-  CLI --> Setup["Setup and status<br/>src/promptforge/cli.py"]
-  CLI --> Batch["Batch evals<br/>src/promptforge/runtime/run_service.py"]
-  App --> Helper["Local helper<br/>src/promptforge/helper/server.py"]
-  Helper --> Project["Project metadata<br/>src/promptforge/project.py"]
-  Helper --> Forge["Forge sessions<br/>src/promptforge/forge/service.py"]
-  Forge --> Batch
-  Batch --> Gateway["Provider gateway<br/>src/promptforge/runtime/gateway.py"]
-  Batch --> Prompts["Prompt loader"]
-  Batch --> Datasets["Dataset loader"]
-  Batch --> Rules["Rule checks"]
-  Batch --> Judge["Rubric judge"]
-  Batch --> Artifacts["Artifact store"]
-  Batch --> Cache["SQLite cache"]
+
+  CLI --> Setup["Setup and health checks"]
+  CLI --> Eval["EvaluationService"]
+
+  App --> Helper["Local Unix-socket helper"]
+  Helper --> Workspace["ForgeWorkspaceService"]
+  Workspace --> Forge["ForgeSession"]
+  Forge --> Eval
+
+  Eval --> Prompts["Prompt loader"]
+  Eval --> Datasets["Dataset loader"]
+  Eval --> Rules["Rule checks"]
+  Eval --> Judge["Rubric judge"]
+  Eval --> Cache["SQLite response cache"]
+  Eval --> Artifacts["Artifact store"]
+  Eval --> Gateway["Provider gateway"]
+
   Gateway --> Providers["OpenAI / OpenRouter / Codex"]
-  Artifacts --> RunDir["var/runs + var/forge"]
+  Artifacts --> RunData["var/runs and var/forge"]
   Cache --> CacheDb["var/state/cache.sqlite3"]
 ```
 
-## Module boundaries
+## Design Boundaries
+
+PromptForge is intentionally narrow:
+
+- local-first, single-project workflows
+- file-backed artifacts and state
+- no remote API server
+- no scheduler, queue, or worker pool
+- no multi-user approval workflow
+
+That design shows up directly in the code:
+
+- CLI entrypoint: [src/promptforge/cli.py](../src/promptforge/cli.py)
+- helper RPC server: [src/promptforge/helper/server.py](../src/promptforge/helper/server.py)
+- project metadata: [src/promptforge/project.py](../src/promptforge/project.py)
+- forge workspace: [src/promptforge/forge/workspace.py](../src/promptforge/forge/workspace.py)
+- runtime execution: [src/promptforge/runtime/run_service.py](../src/promptforge/runtime/run_service.py)
+
+## Component Responsibilities
+
+| Area | Files | Responsibility |
+|---|---|---|
+| CLI surface | `src/promptforge/cli.py` | Parses commands, runs batch operations, prints status, launches the app |
+| Setup flow | `src/promptforge/setup_wizard.py` | Creates or updates `.env`, chooses providers, validates auth flow |
+| App shell | `apps/macos/PromptForge/PromptForge/ContentView.swift` | Navigator, chat, editor, cases, results, inspector, settings UI |
+| App model | `apps/macos/PromptForge/PromptForge/Item.swift` | Helper client, app state, event subscription, prompt save/load, review and playground actions |
+| Runtime locator | `apps/macos/PromptForge/PromptForge/PromptForgeApp.swift`, `Item.swift` | Resolves explicit, bundled, saved, or debug fallback engine roots |
+| Helper RPC boundary | `src/promptforge/helper/server.py` | Exposes project, prompt, scenario, review, benchmark, and agent methods over a local socket |
+| Project metadata | `src/promptforge/project.py` | Stores `.promptforge/project.json` and initializes missing project directories |
+| Prompt metadata | `src/promptforge/prompts/brief.py` | Stores `prompt.json` per prompt pack |
+| Prompt loading | `src/promptforge/prompts/loader.py` | Loads required prompt-pack files, validates them, renders user prompts |
+| Dataset loading | `src/promptforge/datasets/loader.py` | Loads JSONL datasets and computes dataset hashes |
+| Forge workspace | `src/promptforge/forge/workspace.py` | Lists prompts, tracks active prompt/session, saves workspace changes, runs scenarios, playground, and reviews |
+| Forge session | `src/promptforge/forge/service.py` | Owns working prompt copy, revisions, staged edits, benchmark runs, restore/promote flows |
+| Core contracts | `src/promptforge/core/models.py` | Typed models for prompt packs, datasets, runs, scores, comparisons, cache rows |
+| Runtime | `src/promptforge/runtime/run_service.py` | Runs evaluations, compares prompt versions, writes artifacts |
+| Provider boundary | `src/promptforge/runtime/gateway.py` | OpenAI-compatible and Codex execution plus mixed-provider composition |
+| Deterministic scoring | `src/promptforge/scoring/rules.py` | Required sections, required strings, forbidden strings, JSON validity, word limits, policy markers |
+| Rubric judging | `src/promptforge/scoring/judge.py` | Judge request assembly and typed parsing of rubric output |
+| Persistence | `src/promptforge/runtime/artifacts.py`, `src/promptforge/runtime/cache.py` | Filesystem run artifacts and SQLite generation cache |
+| Scenario suites | `src/promptforge/scenarios/models.py`, `src/promptforge/scenarios/service.py` | Saved case sets and assertion definitions |
+
+## Runtime Layers
 
 ```mermaid
 flowchart TB
   subgraph Interface["Interface layer"]
-    CLI["CLI parsing and summaries"]
-    Setup["Interactive setup"]
-    App["SwiftUI macOS app"]
-    Helper["Local helper protocol"]
+    CLI["CLI"]
+    App["macOS app"]
+    Helper["Helper RPC"]
   end
 
-  subgraph Core["Core contracts"]
-    Config["Environment-backed settings"]
-    Models["Pydantic models"]
-    Hashing["Stable hashing"]
-    Logging["Structured logging"]
+  subgraph Workflow["Workflow layer"]
+    Project["Project metadata"]
+    Workspace["Forge workspace"]
+    Session["Forge session"]
+    Scenarios["Scenario suites"]
   end
 
-  subgraph Runtime["Execution layer"]
-    Forge["Forge sessions and staged edits"]
+  subgraph Runtime["Evaluation layer"]
+    Loader["Prompt + dataset loaders"]
     RunService["EvaluationService"]
-    Gateway["Provider gateways"]
-    Artifacts["Artifact store"]
-    Cache["Response cache"]
-    Reports["Report rendering"]
-    Compare["Comparison logic"]
+    Compare["CompareService"]
+    Judge["RubricJudge"]
+    Rules["Rule checks"]
+    Gateway["Model gateways"]
   end
 
-  subgraph Assets["Inputs"]
-    PromptPacks["Prompt packs"]
-    Datasets["JSONL datasets"]
-    JudgeAssets["Judge instructions and schema"]
+  subgraph Persistence["Persistence layer"]
+    Runs["var/runs"]
+    Forge["var/forge"]
+    Cache["cache.sqlite3"]
+    Logs["var/logs/promptforge.log"]
   end
 
-  Interface --> Runtime
-  Interface --> Core
-  Runtime --> Core
-  Runtime --> Assets
+  Interface --> Workflow
+  Workflow --> Runtime
+  Runtime --> Persistence
 ```
 
-## Component responsibilities
+## Interactive Architecture
 
-| Area | Files | Responsibility |
-|---|---|---|
-| Command surface | `src/promptforge/cli.py` | Parses commands, launches the app on macOS, and runs batch commands |
-| App shell | `apps/macos/PromptForge/PromptForge/*.swift` | Presents project, prompt overview, prompt editor, transcript, settings, and onboarding state in the macOS UI, and hydrates app API keys from macOS Keychain before helper launch |
-| Helper boundary | `src/promptforge/helper/server.py` | Exposes a local Unix-socket RPC surface for the macOS app, including long-poll event subscriptions, prompt save/load, prompt-scoped benchmark history, and agent chat methods |
-| Project metadata | `src/promptforge/project.py` | Stores `.promptforge/project.json` and shared non-secret defaults |
-| Prompt workspace metadata | `src/promptforge/prompts/brief.py` | Stores `prompt_packs/<version>/prompt.json` intent fields for each prompt |
-| Onboarding | `src/promptforge/setup_wizard.py` | Creates or updates `.env`, configures auth, and launches provider login flows |
-| Presentation | `src/promptforge/ui.py` | Rich terminal panels, tables, and banners |
-| Settings | `src/promptforge/core/config.py` | Reads environment variables and exposes default paths and provider settings |
-| Contracts | `src/promptforge/core/models.py` | Defines prompt pack, dataset, run config, score, cache, and comparison models |
-| Forge runtime | `src/promptforge/forge/service.py`, `src/promptforge/forge/workspace.py` | Creates staged prompt-edit proposals, applies revisions, tracks benchmark history, and persists the active prompt workspace view |
-| Prompt loading | `src/promptforge/prompts/loader.py`, `src/promptforge/prompts/brief.py` | Resolves prompt pack paths, loads prompt files and `prompt.json`, validates inputs, and renders the user prompt |
-| Dataset loading | `src/promptforge/datasets/loader.py` | Loads JSONL into `DatasetCase` objects and computes dataset hashes |
-| Provider execution | `src/promptforge/runtime/gateway.py` | Sends generation and judge requests through OpenAI-compatible APIs or Codex |
-| Execution orchestration | `src/promptforge/runtime/run_service.py` | Creates runs, executes cases, scores outputs, persists artifacts, and builds comparisons |
-| Deterministic scoring | `src/promptforge/scoring/rules.py` | Required sections, required strings, JSON validity, policy markers, and word-count checks |
-| Rubric scoring | `src/promptforge/scoring/judge.py`, `src/promptforge/agents/prompt_judge/*` | Builds judge payloads and enforces a structured scoring schema |
-| Persistence | `src/promptforge/runtime/artifacts.py`, `src/promptforge/runtime/cache.py` | Writes run artifacts to disk and memoizes model outputs in SQLite |
-| Reporting | `src/promptforge/runtime/report_service.py` | Renders Markdown summaries for evaluation and comparison runs |
-
-## Interactive prompt flow
-
-The app now treats prompt browsing and prompt execution as separate costs.
-
-- Opening a project or clicking a prompt loads prompt files and prompt metadata only.
-- The helper does not create a forge session or benchmark a prompt just to render the dashboard.
-- A forge session is created lazily on the first agent chat, staged edit, prompt save into a working session, or explicit benchmark/evaluation request.
-- Quick benchmarks and full evaluations are explicit user actions; they are no longer hidden behind prompt open or ordinary save flows.
-
-### What runs locally
-
-- macOS app rendering
-- helper process and Unix socket transport
-- CLI parsing and setup
-- Prompt and dataset loading
-- JSON schema validation
-- Local cache reads and writes
-- Run artifact generation
-- Structured logging
-
-### What leaves the machine
-
-- Generated prompt requests sent to the selected provider
-- Judge payloads, which include rendered prompts, case data, and model output, sent to the selected judge provider
-
-### What is intentionally absent
-
-- No remote HTTP server
-- No message queue
-- No scheduler
-- No multi-tenant data model
-- No approval workflow
-
-## Comparison topology
-
-The compare command does not score two versions in-memory and then discard the
-details. It materializes two full evaluation runs first, then writes a third
-comparison run that references the child run IDs in `run.json.notes`.
+The app is not a thin editor. It is a local client for the forge workspace.
 
 ```mermaid
 flowchart LR
-  Compare["pf compare"] --> EvalA["Evaluation run A"]
-  Compare --> EvalB["Evaluation run B"]
-  EvalA --> RunA["var/runs/run_*"]
-  EvalB --> RunB["var/runs/run_*"]
-  RunA --> Aggregate["CompareService"]
-  RunB --> Aggregate
-  Aggregate --> CompareRun["var/runs/cmp_*"]
+  App["SwiftUI app"] --> Client["PromptForgeHelperClient"]
+  Client --> Socket["Unix socket request/response"]
+  Socket --> Helper["PromptForgeHelper"]
+  Helper --> Workspace["ForgeWorkspaceService"]
+  Workspace --> Session["ForgeSession (lazy)"]
+  Session --> Gateway["Provider gateway"]
+  Helper --> Events["HelperEventStream"]
+  Events --> Client
 ```
 
-## Practical architecture implications
+Important implementation details:
 
-- PromptForge is still local-first: app, helper, and CLI all operate on the same project folder.
-- Reproducibility comes from content hashes, `run.lock.json`, and the SQLite cache rather than from a database-backed control plane.
-- Operators can diagnose almost everything from `pf status`, `pf doctor`, `var/logs/promptforge.log`, and the run directory.
-- Scaling beyond local or CI-style use would require new architecture. There is no current worker pool, API layer, or remote state store.
+- The helper owns one project root per process and changes process cwd to that root during startup.
+- Opening a prompt does not force session creation.
+- The first real action, such as agent chat, prompt save, quick check, full evaluation, suite run, or playground run, creates or reloads the forge session lazily.
+- `status.get` and `settings.get` now support empty projects and can return `active_prompt: null`.
+- Provider connection probes for the app are on-demand through `connections.refresh`, not part of every status read.
 
-## Source of truth
+## Batch Execution Architecture
 
-- [`../src/promptforge/cli.py`](../src/promptforge/cli.py)
-- [`../src/promptforge/helper/server.py`](../src/promptforge/helper/server.py)
-- [`../src/promptforge/project.py`](../src/promptforge/project.py)
-- [`../src/promptforge/forge/service.py`](../src/promptforge/forge/service.py)
-- [`../src/promptforge/runtime/run_service.py`](../src/promptforge/runtime/run_service.py)
-- [`../src/promptforge/runtime/gateway.py`](../src/promptforge/runtime/gateway.py)
-- [`../src/promptforge/runtime/artifacts.py`](../src/promptforge/runtime/artifacts.py)
-- [`../src/promptforge/runtime/cache.py`](../src/promptforge/runtime/cache.py)
+`pf run` and `pf compare` use the same runtime service. The compare flow is a
+composition of two evaluation runs plus one comparison run.
+
+```mermaid
+flowchart LR
+  Run["pf run"] --> Eval["EvaluationService.run()"]
+  Compare["pf compare"] --> EvalA["run(prompt A)"]
+  Compare --> EvalB["run(prompt B)"]
+  EvalA --> CompareAggregate["CompareService.compare()"]
+  EvalB --> CompareAggregate
+  CompareAggregate --> CompareRun["comparison run dir"]
+```
+
+## Tooling Boundaries
+
+### What stays local
+
+- prompt packs and prompt metadata
+- datasets and scenario suites
+- project metadata
+- forge revisions, pending edits, chat history, reviews, decisions
+- run artifacts, logs, and the response cache
+- app-to-helper transport
+
+### What crosses provider boundaries
+
+- rendered prompt requests
+- rubric judge payloads, including rendered prompt, case data, and model output
+- Codex CLI subprocess calls when the provider is `codex`
+
+### What PromptForge does not include
+
+- no database-backed control plane
+- no metrics backend
+- no background job service
+- no shared remote project state
+
+## Packaging Boundary
+
+The macOS app is designed to run a packaged Python engine:
+
+- bundled runtime path preferred when present
+- explicit engine root supported for development
+- saved engine root supported for relaunching the same workspace
+- debug builds can fall back to the project root when a valid runtime is present
+
+Source:
+
+- [apps/macos/PromptForge/PromptForge/PromptForgeApp.swift](../apps/macos/PromptForge/PromptForge/PromptForgeApp.swift)
+- [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)
+- [apps/macos/PromptForge/scripts/bundle_engine.sh](../apps/macos/PromptForge/scripts/bundle_engine.sh)
+
+## Practical Implications
+
+- The CLI is the simplest path for reproducible automation and CI-style use.
+- The app is the best path for prompt authoring and review, but it still executes through the same Python engine and file-backed runtime.
+- Most operational recovery is file-based: inspect artifacts, inspect logs, clear cache, restore a revision, or rerun.
+- Scaling beyond one local machine would require new architecture, not just more documentation.

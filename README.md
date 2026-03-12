@@ -4,158 +4,216 @@
 
 # PromptForge
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge is a macOS-first prompt IDE with a local Python engine. The app is
-the main interactive surface for co-authoring prompts with an agent, running
-scenario-style checks, and reviewing prompt changes before promotion. The CLI
-stays in place for setup, status, batch evaluation, comparison, and reporting.
+PromptForge is a local prompt engineering workbench.
 
-It is built for:
+It combines:
 
-- Prompt engineers iterating on prompt packs with an agent and a reproducible local workflow
-- Operators who need a predictable local workflow and durable artifacts
-- Technical and non-technical stakeholders who need a readable review, not raw model transcripts
+- a Python CLI for setup, health checks, batch evaluation, comparison, and reporting
+- a macOS app for interactive prompt authoring with Forgie, saved case sets, and review results
+- a local runtime that turns prompt packs and datasets into reproducible artifacts
 
-What it does:
+PromptForge is for:
 
-- Loads a versioned prompt pack from `prompt_packs/<version>/`
-- Keeps per-prompt intent and editing context in `prompt_packs/<version>/prompt.json`
-- Loads a JSONL evaluation dataset from `datasets/`
-- Stores scenario suites under `scenarios/` for prompt behavior checks
-- Opens a local macOS app for prompt-first, chat-driven iteration
-- Includes an in-app settings surface for providers, models, datasets, auth status, and first-run onboarding
-- Opens each prompt into `Studio`, `Tests`, and `Review` workspaces
-- Treats plain chat messages as an agent conversation for the active prompt instead of requiring slash commands for every action
-- Includes a command bar (`Cmd-K`) for common app actions
-- Includes an in-app playground for ad hoc prompt trials and baseline comparisons
-- Supports reusable prompt blocks and inline draft diffs inside Studio
-- Tracks builder-agent actions, review decisions, and promotion records in the macOS UI
-- Uses a local helper process over a Unix socket for agent edits and benchmark calls
-- Resolves app API keys from macOS Keychain before falling back to inherited local env values
-- Runs each case through one of three provider paths: `openai`, `openrouter`, or `codex`
-- Scores outputs with deterministic rule checks plus a rubric judge
-- Compares prompt versions case-by-case and overall
-- Writes reproducible artifacts under `var/runs/<run_id>/`
+- developers building and iterating on prompt packs
+- operators who need repeatable runs, inspectable artifacts, and recovery playbooks
+- product and business stakeholders who need readable evidence instead of raw transcripts
 
-What it does not do:
+PromptForge is not:
 
-- It is not a web service or background worker
-- It does not mutate datasets
-- It does not include a human approval workflow
-- It does not guarantee provider-side retention or privacy beyond the request flags it sends
+- a hosted service
+- a multi-user control plane
+- a background worker system
+- a general-purpose agent runtime
 
-## Why teams use it
+## What You Get
 
-- Faster prompt iteration with cached reruns and reproducible lockfiles
-- Clear operator workflow: `setup`, `status`, `doctor`, `forge`, `prompts`, `run`, `compare`, `report`
-- Evidence-rich outputs for reviews, release decisions, and regressions
-- Minimal local footprint: filesystem artifacts plus a single SQLite cache
+- Versioned prompt packs under `prompt_packs/<version>/`
+- JSONL datasets under `datasets/`
+- Scenario suites under `scenarios/`
+- Reproducible run artifacts under `var/runs/<run_id>/`
+- Local forge sessions, revisions, proposals, and reviews under `var/forge/`
+- A local SQLite response cache at `var/state/cache.sqlite3`
+- Three provider paths: `openai`, `openrouter`, and `codex`
+- Deterministic rule checks plus rubric judging
 
 ```mermaid
 flowchart LR
-  Author["Prompt author"] --> CLI["pf setup / pf status / pf compare"]
+  Author["Author or operator"] --> CLI["pf CLI"]
   Author --> App["PromptForge.app"]
-  App --> Helper["Local helper<br/>src/promptforge/helper/server.py"]
-  Helper --> Engine["Forge + eval engine<br/>src/promptforge/forge/* + runtime/*"]
-  Engine --> Artifacts["var/runs/ + var/forge/"]
-  Engine --> Providers["OpenAI / OpenRouter / Codex"]
+  CLI --> Setup["setup / status / doctor"]
+  CLI --> Batch["run / compare / report"]
+  App --> Helper["Local helper"]
+  Helper --> Workspace["Forge workspace"]
+  Workspace --> Runtime["Evaluation runtime"]
+  Runtime --> Providers["OpenAI / OpenRouter / Codex"]
+  Runtime --> Artifacts["var/runs + var/forge + cache.sqlite3"]
 ```
 
-## 5-minute quickstart
+## 5-Minute Quickstart
 
-Prerequisites:
+### Prerequisites
 
 - Python 3.11+
 - One auth path:
-  - OpenAI API key, or
-  - OpenRouter API key, or
-  - A working Codex CLI login
+  - `OPENAI_API_KEY`, or
+  - `OPENROUTER_API_KEY`, or
+  - a working `codex login`
+- For the macOS app: a built or installed `PromptForge.app`
 
-Install and run:
+### From This Repository
 
 ```bash
 make bootstrap
 . .venv/bin/activate
 pf setup
 pf doctor
+pf run --prompt v1 --dataset datasets/core.jsonl
 pf forge
 ```
 
-What the wizard does:
+What this does:
 
-- Creates or updates `.env` from `.env.example`
-- Lets you choose `openai`, `openrouter`, or `codex`
-- Stores provider defaults such as `PF_PROVIDER`, `OPENAI_BASE_MODEL`, and `OPENAI_JUDGE_MODEL`
-- Prompts for API keys where needed
-- Checks `codex login status` and can launch `codex login`
+1. creates a local virtualenv and installs the package
+2. writes or updates `.env`
+3. validates auth, model access, prompt resolution, and dataset resolution
+4. runs one evaluation
+5. opens the macOS workspace for interactive prompt work
 
-On macOS, `pf forge` opens `PromptForge.app` for the current project. The app
-handles prompt selection, prompt metadata, prompt-file editing, agent chat,
-staged edit proposals, apply/discard, playground runs, scenario-suite editing,
-review decisions, settings, onboarding, and evaluation feedback. The helper RPC
-exposes a live long-poll event stream through `events.subscribe`, and the app
-hydrates OpenAI/OpenRouter API keys from the macOS Keychain when launching the
-helper. Prompt opens are intentionally cheap: the app loads prompt files and
-workspace state first, then creates a forge session only when the user chats,
-stages edits, saves into a session, or runs an evaluation. The CLI remains the
-setup, status, and batch-evaluation surface.
+### Starting A New Project Folder
 
-## Core workflow
+PromptForge projects are just folders with a conventional layout. The CLI and app
+create missing project scaffolding automatically.
 
-1. Create or update a prompt pack in `prompt_packs/<version>/`, including `prompt.json`, or use `pf prompts create`.
-2. Add or update dataset cases in `datasets/*.jsonl`, then bootstrap or refine scenario suites in `scenarios/*.json`.
-3. Use `pf forge` to open the app and work through `Studio`, `Tests`, and `Review`.
-4. Chat with the agent in plain language, try inputs in Playground, and save prompt workspace changes explicitly.
-5. Run `Quick Check` or `Run Suite` when you want evidence.
-6. Inspect review diffs, assertion results, and decision records before promotion.
+```bash
+mkdir my-prompt-project
+cd my-prompt-project
+pf status
+pf prompts create --prompt draft-v1 --name "Draft v1"
+pf forge
+```
 
-## Key commands
+The first command that opens the project creates:
+
+- `.promptforge/project.json`
+- `prompt_packs/`
+- `datasets/`
+- `scenarios/`
+- `var/`
+
+## How PromptForge Is Organized
+
+### Prompt pack
+
+A prompt pack is a directory with required runtime files:
+
+- `manifest.yaml`
+- `system.md`
+- `user_template.md`
+- `variables.schema.json`
+
+PromptForge also keeps prompt-level authoring metadata in:
+
+- `prompt.json`
+
+### Dataset
+
+A dataset is a JSONL file. Each line becomes one `DatasetCase`.
+
+### Scenario suite
+
+A scenario suite is a saved set of product examples and assertions used for
+review-style prompt checks.
+
+### Run artifact
+
+Every batch run writes:
+
+- `run.json`
+- `run.lock.json`
+- `outputs.jsonl`
+- `scores.json`
+- `comparison.json`
+- `report.md`
+
+## Core Workflow
+
+1. Create or update a prompt pack.
+2. Add representative dataset cases.
+3. Create or refine scenario suites for high-value behaviors.
+4. Use `pf run` or `pf compare` for repeatable batch evidence.
+5. Use `pf forge` to open the macOS workspace and iterate with Forgie.
+6. Review diffs, failures, and results before promotion.
+
+## Key Commands
 
 | Command | Purpose | Typical use |
 |---|---|---|
-| `pf setup` | Interactive onboarding for auth and defaults | First-time setup, provider changes |
-| `pf status` | Show auth, provider defaults, and active workspace info | Quick sanity check before using the forge |
-| `pf doctor` | Validate auth, model access, prompt pack, dataset, and workspace dirs | Preflight check before a run |
-| `pf forge` | Open the PromptForge macOS app for the current project | Day-to-day prompt authoring, scenario testing, and review |
-| `pf prompts list` | List the available prompt packs | Review or script multi-prompt workspaces |
-| `pf prompts create --prompt draft-v1 --from v1` | Create a new prompt pack | Start a new prompt version quickly |
-| `pf scenario list --prompt v1` | List scenario suites linked to a prompt | Inspect available behavior suites |
-| `pf scenario run --suite core --prompt v1` | Run a scenario suite against a prompt | Generate review-ready scenario output |
-| `pf review --prompt v1` | Show the latest saved review for a prompt | Inspect the last scenario run from the CLI |
-| `pf promote --prompt v1` | Promote the current prompt workspace to baseline | Record a ship decision from the CLI |
-| `pf run --prompt v1 --dataset datasets/core.jsonl` | Evaluate one prompt pack | Score a single version |
-| `pf compare --a v1 --b v2 --dataset datasets/core.jsonl` | Compare two prompt packs | Promotion or regression checks |
-| `pf report --run <run_id>` | Print or rebuild a report for an existing run | Share or regenerate human-readable output |
+| `pf setup` | Configure auth and defaults | First-time setup, provider changes |
+| `pf status` | Show current project and auth state | Fast local sanity check |
+| `pf doctor` | Validate environment, auth, prompt, dataset, and model access | Preflight before running |
+| `pf run --prompt v1 --dataset datasets/core.jsonl` | Evaluate one prompt pack | Day-to-day scoring |
+| `pf compare --a v1 --b v2 --dataset datasets/core.jsonl` | Compare two prompt packs | Promotion and regression checks |
+| `pf report --run <run_id>` | Rebuild or print a report | Share existing evidence |
+| `pf prompts list` | List available prompt packs | Inspect project contents |
+| `pf prompts create --prompt draft-v2 --from v1` | Create or clone a prompt pack | Start a new prompt version |
+| `pf scenario list --prompt v1` | List case sets linked to a prompt | Operational review |
+| `pf scenario run --suite core --prompt v1` | Run one saved scenario suite | Focused acceptance checks |
+| `pf review --prompt v1 --json` | Show latest saved review for a prompt | Pull review state from CLI |
+| `pf promote --prompt v1 --summary "Ship"` | Promote the current workspace to baseline | Record a ship decision |
+| `pf forge` | Open the macOS app | Interactive prompt authoring |
 
-Common provider examples:
+## macOS App At A Glance
 
-```bash
-pf run --prompt v1 --dataset datasets/core.jsonl --provider openai --model gpt-5.4
-pf run --prompt v1 --dataset datasets/core.jsonl --provider openrouter --model openai/gpt-5
-pf run --prompt v1 --dataset datasets/core.jsonl --provider codex --judge-provider codex --model gpt-5-mini
-```
+The macOS app is the interactive workspace. Its current structure is:
 
-## Repository layout
+- left navigator: prompts, cases, and results
+- chat pane: Forgie conversation only
+- main pane: current document or review surface
+- right inspector: prompt status, builder controls, activity, and selection details
+
+Important behavior:
+
+- opening a prompt is cheap and does not create a forge session by itself
+- the first real action, such as chat, save, quick check, suite run, or playground run, creates a forge session lazily
+- empty projects are valid; the app can open a project with no prompt packs and guide the user to create or import one
+
+## Repository Layout
 
 ```text
-prompt_packs/                 Versioned prompt packs, including per-prompt prompt.json intent files
+apps/macos/PromptForge/       SwiftUI macOS app, bundled-engine build script, app tests
 datasets/                     JSONL evaluation datasets
-scenarios/                    Scenario suites for prompt behavior checks
-src/promptforge/              CLI, runtime, scoring, providers, and setup flow
-src/promptforge/helper/       Local helper server used by the macOS app
-src/promptforge/forge/        Prompt workspace, staged edits, and revision logic
-src/promptforge/scenarios/    Scenario suite models and storage
-apps/macos/PromptForge/       SwiftUI macOS app
-tests/                        Unit and integration-style tests
-docs/                         Architecture, operations, security, ADRs, and reference docs
-var/                          Generated logs, cache, forge sessions, and run artifacts
+docs/                         Architecture, runtime, operations, security, testing, ADRs
+prompt_packs/                 Versioned prompt packs and prompt.json metadata
+scenarios/                    Saved scenario suites
+src/promptforge/              CLI, runtime, scoring, helper, forge workspace, setup flow
+tests/                        Python tests for contracts, runtime, helper, workspace, and CLI
+var/                          Generated runs, forge sessions, logs, and cache
 ```
 
-## Where to go next
+## Source-Of-Truth Modules
+
+- CLI and command parsing: [src/promptforge/cli.py](src/promptforge/cli.py)
+- Environment and defaults: [src/promptforge/core/config.py](src/promptforge/core/config.py)
+- Project metadata: [src/promptforge/project.py](src/promptforge/project.py)
+- Prompt loading: [src/promptforge/prompts/loader.py](src/promptforge/prompts/loader.py)
+- Prompt brief metadata: [src/promptforge/prompts/brief.py](src/promptforge/prompts/brief.py)
+- Dataset loading: [src/promptforge/datasets/loader.py](src/promptforge/datasets/loader.py)
+- Runtime orchestration: [src/promptforge/runtime/run_service.py](src/promptforge/runtime/run_service.py)
+- Provider gateways: [src/promptforge/runtime/gateway.py](src/promptforge/runtime/gateway.py)
+- Artifact store: [src/promptforge/runtime/artifacts.py](src/promptforge/runtime/artifacts.py)
+- Response cache: [src/promptforge/runtime/cache.py](src/promptforge/runtime/cache.py)
+- Helper RPC server: [src/promptforge/helper/server.py](src/promptforge/helper/server.py)
+- Forge workspace and sessions: [src/promptforge/forge/workspace.py](src/promptforge/forge/workspace.py), [src/promptforge/forge/service.py](src/promptforge/forge/service.py)
+- Scenario suites: [src/promptforge/scenarios/models.py](src/promptforge/scenarios/models.py), [src/promptforge/scenarios/service.py](src/promptforge/scenarios/service.py)
+- macOS app shell and model: [apps/macos/PromptForge/PromptForge/ContentView.swift](apps/macos/PromptForge/PromptForge/ContentView.swift), [apps/macos/PromptForge/PromptForge/Item.swift](apps/macos/PromptForge/PromptForge/Item.swift)
+
+## Read Next
 
 - [Documentation index](docs/index.md)
 - [Architecture](docs/architecture.md)
+- [Data model](docs/data-model.md)
 - [Runtime and pipeline](docs/runtime-and-pipeline.md)
 - [CLI reference](docs/cli-reference.md)
 - [Operations](docs/operations.md)
@@ -163,21 +221,6 @@ var/                          Generated logs, cache, forge sessions, and run art
 - [Testing and quality](docs/testing-and-quality.md)
 - [FAQ](docs/faq.md)
 - [Architecture Decision Records](docs/adr/README.md)
-- [Eval philosophy](docs/eval-philosophy.md)
-
-## Source-of-truth modules
-
-- CLI and command parsing: [`src/promptforge/cli.py`](src/promptforge/cli.py)
-- macOS app shell: [`apps/macos/PromptForge/PromptForge/ContentView.swift`](apps/macos/PromptForge/PromptForge/ContentView.swift)
-- macOS app model and helper bridge: [`apps/macos/PromptForge/PromptForge/Item.swift`](apps/macos/PromptForge/PromptForge/Item.swift)
-- Setup wizard: [`src/promptforge/setup_wizard.py`](src/promptforge/setup_wizard.py)
-- Project metadata: [`src/promptforge/project.py`](src/promptforge/project.py)
-- Local helper: [`src/promptforge/helper/server.py`](src/promptforge/helper/server.py)
-- Runtime orchestration: [`src/promptforge/runtime/run_service.py`](src/promptforge/runtime/run_service.py)
-- Forge session orchestration: [`src/promptforge/forge/service.py`](src/promptforge/forge/service.py)
-- Provider backends: [`src/promptforge/runtime/gateway.py`](src/promptforge/runtime/gateway.py)
-- Data models: [`src/promptforge/core/models.py`](src/promptforge/core/models.py)
-- Prompt and dataset loading: [`src/promptforge/prompts/loader.py`](src/promptforge/prompts/loader.py), [`src/promptforge/datasets/loader.py`](src/promptforge/datasets/loader.py)
 
 <p align="center">
   <img src="docs/assets/promptforge-footer.png" alt="PromptForge footer banner" width="100%" />

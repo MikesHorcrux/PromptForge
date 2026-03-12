@@ -1,6 +1,6 @@
 # ADR-0001: CLI-first, Artifact-driven Runtime
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
 - Status: Superseded by ADR-0006
 

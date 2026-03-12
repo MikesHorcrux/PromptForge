@@ -1,10 +1,8 @@
 # CLI Reference
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
 PromptForge exposes one console entrypoint: `pf`.
-
-## Global usage
 
 ```bash
 pf <command> [options]
@@ -17,40 +15,44 @@ Available commands:
 - `doctor`
 - `forge`
 - `prompts`
+- `scenario`
+- `review`
+- `promote`
 - `run`
 - `compare`
 - `report`
 
-## Shared concepts
+## Shared Concepts
 
 ### Providers
 
-| Provider | How it authenticates | Runtime path |
+| Provider | Auth path | Runtime path |
 |---|---|---|
-| `openai` | `OPENAI_API_KEY` | `AsyncOpenAI.responses.*` |
-| `openrouter` | `OPENROUTER_API_KEY` + `OPENROUTER_BASE_URL` | `AsyncOpenAI` with custom `base_url` |
-| `codex` | `codex login` or `codex login --with-api-key` | `codex exec` subprocesses |
+| `openai` | `OPENAI_API_KEY` | OpenAI Responses API |
+| `openrouter` | `OPENROUTER_API_KEY` + `OPENROUTER_BASE_URL` | OpenAI-compatible client with custom base URL |
+| `codex` | `codex login` | `codex exec` subprocesses |
 
-### Shared flags for `run` and `compare`
+### Shared execution flags for `run` and `compare`
 
 | Flag | Meaning | Default source |
 |---|---|---|
-| `--dataset` | Dataset JSONL path | required |
-| `--model` | Generation model | `OPENAI_BASE_MODEL` |
-| `--provider` | Generation provider | `PF_PROVIDER` |
-| `--judge-provider` | Judge provider; if omitted or empty, runtime falls back to `--provider` | `PF_JUDGE_PROVIDER` |
-| `--temperature` | Generation temperature | `None` |
-| `--max-tokens` | Max output tokens | `PF_DEFAULT_MAX_OUTPUT_TOKENS` |
-| `--seed` | Recorded in config hash; not applied by current providers | `None` |
-| `--retries` | Provider retry count | `PF_DEFAULT_RETRIES` |
-| `--timeout` | Per-request timeout in seconds | `PF_DEFAULT_TIMEOUT_SECONDS` |
-| `--concurrency` | Max concurrent case executions | `PF_DEFAULT_CONCURRENCY` |
-| `--failure-threshold` | Soft stop threshold for failed/processed cases | `PF_DEFAULT_FAILURE_THRESHOLD` |
-| `--scoring-config` | YAML file for `ScoringConfig` overrides | optional |
+| `--model` | generation model | provider-specific default or `.env` |
+| `--provider` | generation provider | `PF_PROVIDER` |
+| `--judge-provider` | judge provider | `PF_JUDGE_PROVIDER` or generation provider |
+| `--temperature` | generation temperature | unset |
+| `--max-tokens` | max output tokens | `PF_DEFAULT_MAX_OUTPUT_TOKENS` |
+| `--seed` | recorded for reproducibility | unset |
+| `--retries` | request retries | `PF_DEFAULT_RETRIES` |
+| `--timeout` | per-request timeout seconds | `PF_DEFAULT_TIMEOUT_SECONDS` |
+| `--concurrency` | max concurrent cases | `PF_DEFAULT_CONCURRENCY` |
+| `--failure-threshold` | soft-stop threshold | `PF_DEFAULT_FAILURE_THRESHOLD` |
+| `--scoring-config` | YAML scoring override file | unset |
+
+## Command Reference
 
 ## `pf setup`
 
-Interactive onboarding for auth and default provider settings.
+Interactive onboarding for auth and provider defaults.
 
 ```bash
 pf setup
@@ -61,308 +63,423 @@ Flags:
 
 | Flag | Meaning |
 |---|---|
-| `--env-file` | Path to the environment file to update |
-| `--example-env-file` | Template file used when the env file does not yet exist |
+| `--env-file` | environment file to create or update |
+| `--example-env-file` | template used when the env file does not exist |
 
 What it does:
 
-- creates `.env` from `.env.example` if needed
-- asks for default generation and judge providers
-- prompts for API keys for OpenAI or OpenRouter
-- checks `codex login status` and can launch `codex login`
-- writes provider defaults such as `PF_PROVIDER`, `PF_JUDGE_PROVIDER`, `OPENAI_BASE_MODEL`, and `OPENAI_JUDGE_MODEL`
+- creates `.env` from `.env.example` when needed
+- asks for generation and judge providers
+- suggests provider-specific default models
+- prompts for OpenAI/OpenRouter keys when needed
+- checks `codex login status` and can launch login
+- optionally runs `pf doctor`
+
+Use it when:
+
+- bootstrapping a repo
+- switching providers
+- changing default models
 
 Troubleshooting:
 
-- If the wizard says Codex is missing, install the CLI or update `PF_CODEX_BIN`.
-- If keys are saved but `pf doctor` still fails, check whether the active shell is reading the same `.env` file you updated.
-
-## `pf doctor`
-
-Preflight validation for auth, prompt pack resolution, dataset resolution, workspace directories, and model access.
-
-```bash
-pf doctor
-pf doctor --provider codex --judge-provider codex --model gpt-5-mini
-pf doctor --prompt v2 --dataset datasets/core.jsonl
-```
-
-Flags:
-
-| Flag | Meaning |
-|---|---|
-| `--prompt` | Prompt pack to validate |
-| `--dataset` | Dataset to validate |
-| `--model` | Model used for the live provider check |
-| `--provider` | Provider to test |
-| `--judge-provider` | Judge provider to verify alongside the generation provider |
-
-What it checks:
-
-- Python version is at least 3.11
-- provider auth or Codex CLI availability
-- prompt pack resolution
-- dataset resolution
-- `var/` directories exist
-- provider can produce the literal string `PF_OK`
-
-Troubleshooting:
-
-- `openai_auth` broken: run `pf setup` and store a valid `OPENAI_API_KEY`
-- `openrouter_auth` broken: verify `OPENROUTER_API_KEY` and `OPENROUTER_BASE_URL`
-- `codex_auth` broken: run `codex login` or rerun `pf setup`
-- `model_access` broken: auth may exist but the chosen model may not be available to that provider
+- Codex missing: install the CLI or set `PF_CODEX_BIN`
+- auth saved but still broken: rerun `pf doctor` in the same shell
 
 ## `pf status`
 
-Quick auth and workspace status without running a live model check.
+Shows local project and auth state without running a full evaluation.
 
 ```bash
 pf status
 ```
 
-What it shows:
+Shows:
 
-- project metadata from `.promptforge/project.json`
-- configured default provider and judge provider
-- configured generation and judge models
-- whether OpenAI or OpenRouter keys are present, in redacted form
+- env file location
+- default provider and judge provider
+- generation and judge models
+- redacted OpenAI/OpenRouter key presence
 - Codex login status
+- project root and directory layout
 - active prompt and active forge session
 
-## `pf run`
+Use it when:
 
-Evaluates a single prompt pack against one dataset.
+- checking a fresh shell
+- confirming which project is active
+- confirming model/provider defaults
+
+## `pf doctor`
+
+Validates environment, inputs, and live model access.
 
 ```bash
-pf run --prompt v1 --dataset datasets/core.jsonl
-pf run --prompt v2 --dataset datasets/core.jsonl --provider codex --judge-provider codex --model gpt-5-mini
-pf run --prompt prompt_packs/v2 --dataset datasets/core.jsonl --provider openrouter --model openai/gpt-5
+pf doctor
+pf doctor --prompt v2 --dataset datasets/core.jsonl
+pf doctor --provider codex --judge-provider codex --model gpt-5-mini
 ```
 
-Required flags:
+Flags:
 
 | Flag | Meaning |
 |---|---|
-| `--prompt` | Prompt pack version or path |
-| `--dataset` | Dataset path |
+| `--prompt` | prompt pack to validate |
+| `--dataset` | dataset to validate |
+| `--model` | model used for the live check |
+| `--provider` | provider to test |
+| `--judge-provider` | judge provider to test alongside the generation provider |
 
-Outputs:
+Checks:
 
-- `var/runs/run_<id>/run.json`
-- `var/runs/run_<id>/run.lock.json`
-- `var/runs/run_<id>/outputs.jsonl`
-- `var/runs/run_<id>/scores.json`
-- `var/runs/run_<id>/comparison.json`
-- `var/runs/run_<id>/report.md`
+- Python version
+- prompt-pack loading
+- dataset loading
+- workspace directories
+- provider auth
+- model access by asking the provider to return `PF_OK`
 
-Troubleshooting:
+Use it when:
 
-- Missing prompt pack files: ensure `manifest.yaml`, `system.md`, `user_template.md`, and `variables.schema.json` all exist
-- Input schema validation error: fix the dataset case so `case.input` matches `variables.schema.json`
-- Score is unexpectedly zero: inspect `scores.json.cases[*].hard_fail_reasons`
-- Run stops early: inspect the failure rate and check whether the failure threshold tripped
+- before the first run on a machine
+- after auth changes
+- after switching providers or models
 
 ## `pf forge`
 
-Opens the PromptForge macOS app for the current project.
+Launches the macOS app for the current project.
 
 ```bash
 pf forge
-pf forge --project .
+pf forge --project /path/to/project
 ```
 
 Flags:
 
 | Flag | Meaning |
 |---|---|
-| `--project` | PromptForge project root to open in the macOS app |
+| `--project` | project root to open |
 
-What it does:
+Behavior:
 
-- ensures `.promptforge/project.json` exists for the target project
+- ensures the target folder has PromptForge project scaffolding
 - locates `PromptForge.app`
-- launches the app and passes `--project <path>` and `--engine-root <repo-root>`
+- launches the app with `--project <root>` and `--engine-root <repo-root>`
 
-If the app is not found, PromptForge prints guidance and expected install paths.
+The app then prefers:
 
-Inside the app:
+1. explicit engine root
+2. bundled engine in the app resources
+3. saved engine root
+4. debug-only project fallback
 
-- selecting a prompt opens an overview dashboard backed by `prompt.json`
-- plain messages are routed to the prompt-scoped agent chat flow
-- forge sessions are created lazily when the user chats, stages edits, saves into a session, or runs an evaluation
-- benchmarks are explicit actions, not hidden work on prompt open
+Use it when:
 
-Interactive slash commands are still available:
+- editing prompts interactively
+- managing case sets
+- running reviews and playground trials
 
-| Command | Meaning |
-|---|---|
-| `/help` | Show the available app commands |
-| `/prompts` | List available prompt packs |
-| `/open <name>` | Open a prompt pack |
-| `/new <name>` | Create a new prompt pack |
-| `/clone <source> <name>` | Clone an existing prompt pack |
-| `/status` | Show provider, auth, and session info |
-| `/coach <request>` | Ask for focused prompt-improvement guidance |
-| `/edit <request>` | Ask the agent to prepare a staged edit proposal |
-| `/save` | Save current prompt overview and prompt files into the active workspace session |
-| `/prompt` | Print the current system prompt into the transcript |
-| `/template` | Print the current user template into the transcript |
-| `/bench` | Run the quick benchmark lane |
-| `/full` | Run the full evaluation lane |
-| `/diff` | Show the pending diff or the latest baseline delta |
-| `/failures` | Show hard-failing cases |
-| `/apply` | Apply the staged proposal |
-| `/discard` | Discard the staged proposal |
-| `/undo` | Restore the previous revision |
-| `/export <name>` | Export the current prompt to a new prompt pack |
+## `pf prompts list`
 
-Notes:
-
-- Plain chat is now the default agent interface. Use slash commands only when you need a precise explicit action.
-- `/coach` is narrower than plain chat. It keeps the older prompt-advice framing when you want direct benchmark-driven guidance.
-
-## `pf prompts`
-
-Prompt-pack management commands for multi-prompt workspaces.
+Lists prompt packs in the current project.
 
 ```bash
 pf prompts list
-pf prompts create --prompt draft-v1
-pf prompts create --prompt draft-v2 --from v1
 ```
 
-Subcommands:
+Use it when:
 
-| Command | Meaning |
-|---|---|
-| `pf prompts list` | List prompt packs under `prompt_packs/` |
-| `pf prompts create --prompt <name>` | Create a new prompt pack from the default scaffold |
-| `pf prompts create --prompt <name> --from <source>` | Clone an existing prompt pack into a new one |
+- checking what prompt versions exist
+- scripting prompt selection
 
-## `pf compare`
+## `pf prompts create`
 
-Runs two full evaluations, then creates a separate comparison run.
+Creates a new prompt pack, optionally cloned from an existing pack.
 
 ```bash
-pf compare --a v1 --b v2 --dataset datasets/core.jsonl
-pf compare --a v1 --b v2 --dataset datasets/core.jsonl --provider codex --judge-provider codex --model gpt-5-mini
+pf prompts create --prompt draft-v2
+pf prompts create --prompt draft-v2 --from v1 --name "Draft v2"
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--prompt` | new prompt pack version |
+| `--from` | optional source prompt pack to clone |
+| `--name` | optional display name |
+
+Creates:
+
+- `manifest.yaml`
+- `system.md`
+- `user_template.md`
+- `variables.schema.json`
+- `prompt.json`
+
+## `pf scenario list`
+
+Lists saved scenario suites.
+
+```bash
+pf scenario list
+pf scenario list --prompt v1
+pf scenario list --prompt v1 --json
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--prompt` | optional prompt ref used to filter linked suites |
+| `--json` | emit JSON instead of human-friendly output |
+
+## `pf scenario show`
+
+Shows one saved scenario suite.
+
+```bash
+pf scenario show --suite core
+pf scenario show --suite core --json
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--suite` | suite ID |
+| `--json` | emit JSON |
+
+## `pf scenario create`
+
+Creates a new scenario suite.
+
+```bash
+pf scenario create --suite returns
+pf scenario create --suite returns --prompt v1 --name "Returns" --description "Return flow cases"
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--suite` | new suite ID |
+| `--prompt` | optional linked prompt |
+| `--name` | display name |
+| `--description` | suite description |
+
+## `pf scenario run`
+
+Runs one saved scenario suite against one prompt.
+
+```bash
+pf scenario run --suite core --prompt v1
+pf scenario run --suite core --prompt v1 --repeats 3 --json
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--suite` | suite ID |
+| `--prompt` | prompt ref |
+| `--repeats` | optional repeat-count override |
+| `--json` | emit JSON |
+
+Behavior:
+
+- creates or reloads the forge session for the prompt
+- runs every suite case against the current prompt and the baseline
+- stores the resulting review inside the forge session
+
+## `pf review`
+
+Shows the latest saved reviews for a prompt.
+
+```bash
+pf review --prompt v1
+pf review --prompt v1 --json
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--prompt` | prompt ref |
+| `--json` | emit JSON |
+
+Use it when:
+
+- you want review results from the CLI instead of the app
+
+## `pf promote`
+
+Promotes the current prompt workspace to baseline and records a decision.
+
+```bash
+pf promote --prompt v1 --summary "Ship candidate"
+pf promote --prompt v1 --summary "Ship candidate" --rationale "Improves case wins"
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| `--prompt` | prompt ref |
+| `--summary` | short decision summary |
+| `--rationale` | optional rationale |
+| `--review-id` | optional review identifier |
+| `--suite-id` | optional suite identifier |
+
+## `pf run`
+
+Runs one prompt pack against one dataset.
+
+```bash
+pf run --prompt v1 --dataset datasets/core.jsonl
+pf run --prompt v1 --dataset datasets/core.jsonl --provider openrouter --model openai/gpt-5
+pf run --prompt v1 --dataset datasets/core.jsonl --provider codex --judge-provider codex --model gpt-5-mini
 ```
 
 Required flags:
 
 | Flag | Meaning |
 |---|---|
-| `--a` | Baseline prompt pack version or path |
-| `--b` | Candidate prompt pack version or path |
-| `--dataset` | Dataset path |
+| `--prompt` | prompt pack version or path |
+| `--dataset` | path to a JSONL dataset |
 
-What gets created:
+Outputs:
 
-- two child evaluation runs under `var/runs/run_*`
-- one comparison run under `var/runs/cmp_*`
+- `run.json`
+- `run.lock.json`
+- `outputs.jsonl`
+- `scores.json`
+- `comparison.json`
+- `report.md`
 
-Comparison semantics:
+Use it when:
 
-- hard-fail pass/fail beats weighted-score deltas
-- weighted-score deltas within `tie_margin` are treated as ties
-- `comparison.json` records per-case winner, confidence, and trait deltas
+- you need one repeatable evaluation with durable artifacts
 
-Troubleshooting:
+## `pf compare`
 
-- If compare fails after one child run, check `var/runs/` for the child run artifacts and rerun the compare command
-- If results are hard to explain, inspect both child `scores.json` files first, then the final `comparison.json`
+Runs two prompt packs against one dataset and writes a comparison run.
+
+```bash
+pf compare --a v1 --b v2 --dataset datasets/core.jsonl
+pf compare --a v1 --b v2 --dataset datasets/core.jsonl --provider codex --judge-provider openai
+```
+
+Required flags:
+
+| Flag | Meaning |
+|---|---|
+| `--a` | baseline prompt pack version or path |
+| `--b` | candidate prompt pack version or path |
+| `--dataset` | path to a JSONL dataset |
+
+Use it when:
+
+- deciding whether one prompt should replace another
+- capturing evidence for promotion or rollback
 
 ## `pf report`
 
-Reads or rebuilds the report for an existing run.
+Prints or rebuilds `report.md` for an existing run.
 
 ```bash
-pf report --run run_bc01fa629ba6
-pf report --run cmp_123456789abc --print
+pf report --run run_abc123
+pf report --run cmp_abc123 --print
 ```
 
 Flags:
 
 | Flag | Meaning |
 |---|---|
-| `--run` | Existing run ID |
-| `--print` / `--no-print` | Print the Markdown report to stdout instead of just the path |
+| `--run` | run ID |
+| `--print` | print the report to stdout |
 
-Behavior:
+Important:
 
-- evaluation runs rebuild from `scores.json`
-- comparison runs rebuild from `comparison.json`
+- `pf report` does not rerun provider calls
+- it rebuilds the Markdown report from saved artifacts if needed
 
-Troubleshooting:
+## Common Operator Recipes
 
-- `Run not found`: check `var/runs/` and make sure the run ID is correct
-- Missing `report.md`: `pf report` will regenerate it if the source JSON artifact still exists
-- Missing `scores.json` or `comparison.json`: the run is incomplete; rerun the original command
-
-## Scoring config override example
-
-`--scoring-config` expects a YAML file shaped like `ScoringConfig`.
-
-```yaml
-rubric_weights:
-  instruction_adherence: 0.35
-  format_compliance: 0.20
-  clarity_conciseness: 0.15
-  domain_relevance: 0.20
-  tone_alignment: 0.10
-hard_fail_rules:
-  fail_on_missing_sections: true
-  fail_on_invalid_json_when_required: true
-  fail_on_policy_markers: true
-  policy_markers:
-    - "[policy_violation]"
-    - "[unsafe_content]"
-    - "SAFETY_VIOLATION"
-judge_model: gpt-5-mini
-judge_max_output_tokens: 700
-judge_temperature: 0.0
-tie_margin: 0.2
-```
-
-## Common operator recipes
-
-### First local setup
+### Validate a workstation
 
 ```bash
-make bootstrap
-. .venv/bin/activate
 pf setup
 pf doctor
+pf status
 ```
 
-### Compare a new prompt against the baseline
+### Evaluate one prompt quickly
+
+```bash
+pf run --prompt v1 --dataset datasets/core.jsonl
+open var/runs/$(ls -t var/runs | head -n 1)/report.md
+```
+
+### Compare a candidate to baseline
 
 ```bash
 pf compare --a v1 --b v2 --dataset datasets/core.jsonl
 ```
 
-### Use Codex for both generation and judging
+### List and run linked case sets
 
 ```bash
-pf run --prompt v1 --dataset datasets/core.jsonl --provider codex --judge-provider codex --model gpt-5-mini
+pf scenario list --prompt v2
+pf scenario run --suite core --prompt v2 --json
 ```
 
-### Regenerate a missing report
+### Promote after review
 
 ```bash
-pf report --run run_bc01fa629ba6
+pf review --prompt v2 --json
+pf promote --prompt v2 --summary "Promote after passing core review"
 ```
 
-### Clear the local cache and rerun
+## Troubleshooting By Command
 
-```bash
-rm var/state/cache.sqlite3
-pf run --prompt v1 --dataset datasets/core.jsonl
-```
+| Command | Symptom | Likely cause | What to do |
+|---|---|---|---|
+| `pf setup` | wizard loops on model input | entered `yes` or `no` for a model name | enter a real model name or accept the default |
+| `pf status` | wrong active prompt | last opened prompt or workspace state is stale | open the desired prompt in the app or inspect `.promptforge/project.json` |
+| `pf doctor` | auth passes but model check fails | selected model not available to that provider | switch model or provider |
+| `pf forge` | app fails to open | app not installed or not built | build/install `PromptForge.app` or set `PF_APP_PATH` |
+| `pf prompts create` | prompt already exists | version directory already present | choose a new version or remove the old directory |
+| `pf scenario run` | suite missing | suite ID not found | run `pf scenario list` first |
+| `pf run` | prompt pack invalid | missing required prompt files | fix `manifest.yaml`, `system.md`, `user_template.md`, or `variables.schema.json` |
+| `pf run` | dataset case rejected | schema mismatch | fix `case.input` to satisfy `variables.schema.json` |
+| `pf compare` | confusing winner | hard-fails outweighed score deltas | inspect child runs and `comparison.json` |
+| `pf report` | report missing | run directory incomplete | inspect the run directory and logs, then rerun if needed |
 
-## Source of truth
+## App Power-User Commands
 
-- [`../src/promptforge/cli.py`](../src/promptforge/cli.py)
-- [`../src/promptforge/setup_wizard.py`](../src/promptforge/setup_wizard.py)
-- [`../src/promptforge/core/config.py`](../src/promptforge/core/config.py)
+The macOS app still supports slash commands in the chat composer for power users.
+These are not separate CLI commands, but they are part of the current product.
+
+Examples:
+
+- `/help`
+- `/prompts`
+- `/open <prompt>`
+- `/new <prompt>`
+- `/clone <source> <name>`
+- `/status`
+- `/coach <request>`
+- `/edit <request>`
+- `/save`
+- `/bench`
+- `/full`
+- `/apply`
+- `/discard`
+- `/undo`
+- `/export <name>`
+
+Source:
+
+- [src/promptforge/cli.py](../src/promptforge/cli.py)
+- [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)

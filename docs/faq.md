@@ -1,115 +1,202 @@
 # FAQ
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-## Do I need an OpenAI API key to use PromptForge?
+## What is PromptForge in one sentence?
 
-No. You can use the `codex` provider if `codex login` is already configured, or
-the `openrouter` provider if you have an OpenRouter key.
+PromptForge is a local prompt engineering workbench that evaluates versioned
+prompt packs against fixed datasets, lets you iterate interactively in a macOS
+app, and writes reproducible artifacts.
 
-## Does PromptForge use the OpenAI Agents SDK?
+## Do I need the macOS app to use PromptForge?
 
-No. The runtime uses the Python `openai` SDK for OpenAI-compatible requests and
-the Codex CLI for the Codex provider path.
+No. The CLI is enough for setup, status, runs, comparisons, reports, prompt
+creation, scenario operations, review inspection, and promotion.
+
+The app is the interactive workspace for:
+
+- Forgie chat
+- prompt editing
+- cases
+- results review
+- try-input playground runs
+
+## Is the app macOS-only?
+
+Yes. `pf forge` is a macOS path. The Python CLI and runtime are still useful
+outside the app.
 
 ## What exactly is a prompt pack?
 
-A prompt pack is a directory with:
+A prompt pack is a directory containing:
 
-- `prompt.json`
 - `manifest.yaml`
 - `system.md`
 - `user_template.md`
 - `variables.schema.json`
 
-The loader treats `manifest.yaml`, `system.md`, `user_template.md`, and
-`variables.schema.json` as required. `prompt.json` is the prompt intent file
-used by the app and workspace service, and older prompt packs get a default one
-when they are opened in the app.
+PromptForge also uses:
+
+- `prompt.json`
+
+for prompt metadata and authoring context.
+
+## What is `prompt.json` for?
+
+It stores prompt-level metadata such as:
+
+- purpose
+- expected behavior
+- success criteria
+- baseline prompt reference
+- linked scenario suites
+- owner and audience fields
+- builder settings
+
+If an older prompt pack does not have `prompt.json`, PromptForge can create a
+default one when the prompt is opened.
+
+## Why do I see `prompt_blocks` in the metadata if the UI is file-first now?
+
+Because PromptForge still carries a compatibility field for older prompt-brief
+data. The current app centers on full-file editing, but the metadata contract
+still preserves `prompt_blocks` for older saved prompts.
+
+## What is the difference between dataset cases and scenario cases?
+
+- dataset cases drive batch evaluation with `pf run` and `pf compare`
+- scenario cases drive saved review-style checks in the forge workspace and app
+
+Scenario suites are closer to acceptance tests for prompt behavior.
+
+## What is `Try Input`?
+
+`Try Input` is the playground surface.
+
+It lets you:
+
+- run one ad hoc input against the current prompt
+- optionally compare against the baseline
+- generate a few samples
+- promote a useful scratch input into a saved case later
+
+## Why does opening a prompt in the app feel fast now?
+
+Because prompt open does not create a forge session or run a benchmark. The app
+loads prompt files and metadata first, then creates the forge session lazily on
+the first real action.
+
+## Why can the first real action still feel slower?
+
+The first chat, save, quick check, suite run, or playground run may need to:
+
+- create or reload the forge session
+- start provider calls
+- warm provider-side caches
+
+This is most noticeable with the Codex provider path.
 
 ## What happens if a dataset case is missing an `id`?
 
-The loader creates one based on the line number, such as `line-0001`.
+The loader synthesizes one based on the line number, such as `line-0001`.
 
-## Why did a case get a score of zero?
+## Why did a case score zero?
 
-Check `scores.json.cases[*].hard_fail_reasons`. The most common causes are:
+Check `scores.json.cases[*].hard_fail_reasons`.
+
+Common causes:
 
 - missing required sections
 - invalid JSON when JSON output was required
+- forbidden markers
+- provider execution failure
 - judge failure fallback
-- provider execution error or threshold skip
 
-## Why did the run stop before all cases were sent?
+## Why did a run stop before every case finished?
 
-The failure threshold may have tripped. PromptForge stops launching remaining
-queued cases once `failed / processed` exceeds `RunConfig.failure_threshold`.
-Tasks already in flight still finish.
+The failure threshold likely tripped.
 
-## What is the difference between `raw_weighted_score` and `effective_weighted_score`?
+PromptForge soft-stops by:
 
-`raw_weighted_score` is the rubric score before hard-fail penalties.
-`effective_weighted_score` is zeroed out when a case hard-fails.
+- stopping new queued work
+- allowing already-running tasks to finish
+- writing a partial but inspectable run
 
-## What does the cache actually store?
+## Does PromptForge rerun models when I call `pf report`?
 
-The SQLite cache stores raw output text and metadata for successful generation
-results. It does not store the original dataset input body.
+No. `pf report` rebuilds or prints `report.md` from saved artifacts.
 
-## How do I clear the cache?
+## What does the response cache store?
 
-Delete `var/state/cache.sqlite3`. The table will be recreated automatically on
-the next run.
+The cache stores successful generation outputs and metadata keyed by:
+
+- prompt version
+- case ID
+- model
+- config hash
+
+It does not store the full dataset file as rows in SQLite.
+
+## How do I clear cached generations?
+
+Delete:
+
+```bash
+rm -f var/state/cache.sqlite3
+```
+
+The cache table is recreated automatically on the next run.
+
+## Can I open a brand-new empty project?
+
+Yes. Empty projects are now a first-class state in the app and helper.
+
+You can open the project, then create or import a prompt pack.
+
+## Why does the app say the bundled runtime is missing?
+
+The app could not find a valid packaged engine.
+
+For source builds, rebuild the app after rebuilding the local engine runtime so
+the app bundle contains a usable:
+
+- `engine/.venv/bin/python`
+- `engine/src/promptforge/helper/server.py`
 
 ## How do I rollback a bad prompt change?
 
-There is no rollback command. Use the previous prompt pack version or revert to
-an earlier Git commit, then rerun `pf compare` against the candidate.
+Use one of:
 
-## Why is benchmark history empty when I first open a prompt in the app?
+- forge revision restore
+- baseline promotion from a known-good state
+- `pf compare` against a known-good prompt version
+- Git history
 
-Because prompt open is now lazy. The app loads prompt files and prompt metadata
-without creating a forge session or running a benchmark. History appears after
-you explicitly run `Run Bench` or `Full Eval`.
+## Is there a human approval gate?
 
-## Why can app chat feel slower on the first request?
-
-The first real agent action on a prompt creates a forge session in `var/forge/`
-and may also need to start the provider path you selected. That is especially
-noticeable with the `codex` provider because it shells out to the Codex CLI.
+No. PromptForge records decisions, but it does not implement a multi-user
+approval workflow.
 
 ## Can I run PromptForge as a service?
 
-Not in its current form. The implementation is app-first for interactive prompt
-work and CLI-driven for setup and batch evaluation, but it still does not
-include an HTTP API, scheduler, or worker process.
+Not in the current implementation. It is a local CLI plus local macOS app and
+helper process, not an HTTP service or worker system.
 
-## Are there approval gates for risky actions?
+## When should I use Codex instead of OpenAI or OpenRouter?
 
-No. PromptForge currently evaluates prompts only. It does not ship with a human
-approval system.
+Use Codex when your team prefers Codex login and CLI-based provider access.
 
-## Does `pf report` rerun models?
+Tradeoffs:
 
-No. It rebuilds `report.md` from `scores.json` or `comparison.json` when those
-files already exist.
+- broader local execution context than direct API calls
+- slower cold-start feel in some interactive flows
+- different risk profile even with read-only sandboxing
 
-## Why would I choose Codex over direct OpenAI API calls?
-
-Mostly for auth and workflow reasons. If your operators already use Codex login,
-the Codex provider avoids storing an `OPENAI_API_KEY` for runtime use. The tradeoff
-is a broader execution environment than plain API calls, even with the read-only
-sandbox default.
-
-## Why would I choose OpenRouter?
-
-Use it when you want OpenAI-compatible request handling but manage models through
-OpenRouter instead of direct OpenAI credentials.
-
-## Where should non-technical stakeholders look?
+## Where should a non-technical stakeholder look first?
 
 Start with:
 
-- `report.md` for the latest run
-- `comparison.json` if they need structured evidence
-- [README](../README.md) and [eval philosophy](eval-philosophy.md) for value and boundaries
+- `report.md`
+- `comparison.json` when a structured diff matters
+- the app `Results` view for interactive review
+- [README](../README.md) for scope and boundaries

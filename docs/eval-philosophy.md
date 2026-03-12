@@ -1,8 +1,8 @@
 # Eval Philosophy
 
-_Last verified against commit `bf2bd3481eb50f6507094ec0e49bb6567bcab348`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge is built around one idea:
+PromptForge is built around one principle:
 
 prompt changes should be judged by repeatable evidence, not by one impressive
 chat turn.
@@ -20,13 +20,14 @@ Some failures are not subjective:
 
 - required sections are missing
 - JSON is invalid when JSON output is required
-- a known policy marker appears
+- required strings are missing
+- forbidden markers appear
 
-These should count as hard failures regardless of how polished the prose sounds.
+These count as hard failures regardless of how polished the prose sounds.
 
 ## Why rubric judging still matters
 
-Good prompt behavior is more than format compliance. PromptForge still evaluates:
+PromptForge also evaluates:
 
 - instruction adherence
 - format compliance
@@ -41,21 +42,20 @@ That combination is why the score model uses both:
 
 ## How PromptForge treats regressions
 
-- Hard-fail pass/fail outranks weighted-score deltas during comparison.
-- Small score differences within `tie_margin` are treated as ties.
-- The comparison report highlights both improved and regressed traits so a "winner" is still inspectable.
+- hard-fail pass/fail outranks weighted-score deltas during comparison
+- small score differences within `tie_margin` are treated as ties
+- comparison highlights both improved and regressed traits instead of only a winner label
 
 ## What this means for teams
 
-- A prompt can be operationally valid but still mediocre.
-- A prompt can sound better but still lose if it breaks output requirements.
-- A run can succeed while a prompt fails.
+- a prompt can be operationally valid but still mediocre
+- a prompt can sound better but still lose if it breaks hard requirements
+- a run can succeed while the prompt still fails quality expectations
 
-That is intentional. PromptForge is designed to make those distinctions obvious.
+That distinction is intentional.
 
 ## Source of truth
 
-- [`../src/promptforge/scoring/rules.py`](../src/promptforge/scoring/rules.py)
-- [`../src/promptforge/scoring/judge.py`](../src/promptforge/scoring/judge.py)
-- [`../src/promptforge/runtime/compare_service.py`](../src/promptforge/runtime/compare_service.py)
-
+- [src/promptforge/scoring/rules.py](../src/promptforge/scoring/rules.py)
+- [src/promptforge/scoring/judge.py](../src/promptforge/scoring/judge.py)
+- [src/promptforge/runtime/compare_service.py](../src/promptforge/runtime/compare_service.py)

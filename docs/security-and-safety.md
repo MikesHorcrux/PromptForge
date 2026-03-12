@@ -1,60 +1,64 @@
-# Security and Safety
+# Security And Safety
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge is safer than a general agent runtime because it evaluates prompts,
-not business actions. It does not write to external systems, mutate datasets, or
-ship with approval-gated write tools.
+PromptForge is safer than a general-purpose agent platform because its core job
+is prompt evaluation, not business-side automation. It still handles secrets,
+model outputs, and provider requests, so the trust boundaries need to be clear.
 
-That said, it still moves prompt and dataset content through external providers,
-stores outputs locally, and allows a Codex-backed execution path. This document
-describes the real trust boundaries in the current code.
+## Security Posture In One Page
 
-## Secrets and auth model
+- local-first, file-backed runtime
+- no hosted control plane
+- no remote database
+- no built-in human approval workflow
+- provider requests leave the machine
+- outputs and reviews are stored locally
+- OpenAI-compatible requests ask providers not to store request data
 
-| Provider path | Secret or auth source | Used by | Notes |
+## Auth And Secret Sources
+
+| Surface | Secret or auth source | Used by | Notes |
 |---|---|---|---|
-| `openai` | `OPENAI_API_KEY` | `get_openai_client()` | Direct `AsyncOpenAI` client |
-| `openrouter` | `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | `get_openai_compatible_client("openrouter")` | OpenAI-compatible base URL path |
-| `codex` | local `codex login` session or `codex login --with-api-key` | `CodexGateway` | PromptForge shells out to `codex exec` |
+| CLI | `.env` via `python-dotenv` | CLI runtime, batch runs, setup flow | standard developer path |
+| App | macOS Keychain first, inherited env as fallback/migration | local helper launch | OpenAI/OpenRouter keys only |
+| Codex | local `codex login` state | CLI and app when provider is `codex` | checked explicitly, not on every app status call |
 
-For the macOS app specifically:
+Relevant settings:
 
-- `PromptForge.app` now reads `OPENAI_API_KEY` and `OPENROUTER_API_KEY` from the
-  macOS Keychain first when launching the local helper.
-- The settings UI reports whether those keys are loaded, but it does not render
-  the current secret values back into the interface.
-- If the app inherits one of those keys from the current shell environment and
-  the Keychain does not already have it, the app writes that key into the
-  Keychain as a one-time migration path.
-- The Python engine still supports `.env` for CLI-first workflows. Codex auth
-  still relies on the local `codex login` session state, but the app can now
-  launch that login flow from its settings UI.
-- The app keeps prompt-scoped agent conversation history in local forge session
-  files under `var/forge/<session_id>/chat_history.json`.
+- `OPENAI_API_KEY`
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_BASE_URL`
+- `PF_PROVIDER`
+- `PF_JUDGE_PROVIDER`
+- `PF_CODEX_BIN`
+- `PF_CODEX_PROFILE`
+- `PF_CODEX_SANDBOX`
+- `PF_CODEX_REASONING_EFFORT`
 
-Secret source files:
+Sources:
 
-- `.env.example` defines supported variables
-- `.env` is loaded via `python-dotenv`
-- `.env` is ignored by Git
+- [src/promptforge/core/config.py](../src/promptforge/core/config.py)
+- [src/promptforge/setup_wizard.py](../src/promptforge/setup_wizard.py)
+- [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)
 
-## Trust boundaries
+## Trust Boundary Diagram
 
 ```mermaid
 flowchart LR
   subgraph Local["Local machine"]
     Env[".env"]
     Keychain["macOS Keychain"]
-    Packs["prompt_packs/"]
-    Data["datasets/"]
     App["PromptForge.app"]
     Helper["Local helper"]
-    CLI["PromptForge CLI"]
-    Runs["var/runs/"]
-    Forge["var/forge/"]
-    Cache["var/state/cache.sqlite3"]
-    Logs["var/logs/promptforge.log"]
+    CLI["pf CLI"]
+    Packs["prompt packs"]
+    Data["datasets"]
+    Scenarios["scenario suites"]
+    Runs["var/runs"]
+    Forge["var/forge"]
+    Cache["cache.sqlite3"]
+    Logs["promptforge.log"]
   end
 
   subgraph External["External providers"]
@@ -64,127 +68,145 @@ flowchart LR
 
   Env --> CLI
   Keychain --> App
-  Packs --> CLI
-  Packs --> App
-  Data --> CLI
-  Data --> App
   App --> Helper
   Helper --> OpenAI
   Helper --> Codex
-  Helper --> Forge
   CLI --> OpenAI
   CLI --> Codex
+  Helper --> Forge
   CLI --> Runs
   CLI --> Cache
   CLI --> Logs
 ```
 
-## Safe defaults in code
+## Safe Defaults In Code
 
-| Default | Where it lives | Effect |
+| Default | Code path | Effect |
 |---|---|---|
-| `store=False` for OpenAI-compatible requests | `src/promptforge/runtime/gateway.py` | PromptForge does not ask OpenAI-compatible providers to store requests |
-| `PF_STDOUT_LOGS=false` | `.env.example`, `src/promptforge/core/config.py` | Structured logs go to file, not stdout, unless explicitly enabled |
-| Codex sandbox defaults to `read-only` | `.env.example`, `src/promptforge/core/config.py` | Codex-backed runs start with a read-only sandbox configuration |
-| No provider tools are passed for generation | `src/promptforge/runtime/gateway.py` | OpenAI-compatible generation is plain prompt execution, not tool use |
-| Dataset validation before execution | `src/promptforge/prompts/loader.py` | Bad inputs fail before provider calls |
-| Hard-fail policy markers | `src/promptforge/core/models.py` | Outputs containing known policy markers are zeroed out as failures |
+| `store=False` on OpenAI-compatible generation and judging | `src/promptforge/runtime/gateway.py` | PromptForge asks providers not to retain request payloads |
+| Codex sandbox defaults to `read-only` | `src/promptforge/core/config.py` | Codex runs start from a narrower local execution posture |
+| Prompt input validation before execution | `src/promptforge/prompts/loader.py` | malformed dataset cases fail before provider calls |
+| Structured logging redacts sensitive key names | `src/promptforge/core/logging.py` | keys like `api_key`, `secret`, `token`, `password` are masked |
+| App connection probes are on-demand | `src/promptforge/helper/server.py` | app status reads do not shell out to Codex by default |
+| Staged prompt edits validate before swap | `src/promptforge/forge/service.py` | malformed staged edits should not overwrite the working prompt |
 
-## Important limitations
+## What Leaves The Machine
 
-### There is no approval gate
+### OpenAI and OpenRouter
 
-PromptForge currently has:
+Generation requests include:
 
-- no human approval workflow
-- no approval service
-- no separate risk tier system
-
-Its safety posture comes from limited scope:
-
-- evaluate prompts
-- record outputs
-- score them
-- write local artifacts
-
-### Logs are redacted by key name, not full content analysis
-
-The structured logger redacts payload keys containing markers such as:
-
-- `api_key`
-- `authorization`
-- `secret`
-- `token`
-- `password`
-
-It does not perform full content scanning. If a secret is embedded in a generic
-string field, the logger will not automatically detect it.
-
-### Outputs are stored locally
-
-PromptForge stores raw model outputs in:
-
-- `outputs.jsonl`
-- `scores.json` summaries and evidence
-- `report.md`
-- the SQLite response cache
-- forge session state such as prompt revisions, pending edits, and chat history
-
-Do not run sensitive datasets unless local artifact retention is acceptable for
-your environment.
-
-### Judge payloads are rich
-
-The judge request payload includes:
-
-- prompt version and prompt name
 - system prompt
-- fully rendered user prompt
-- the full dataset case
-- the model output being judged
+- rendered user prompt
+- metadata like run ID, case ID, prompt version, and config hash
 
-That payload is sent to the selected judge provider. It is not written to local
-artifacts directly, but it does cross the provider boundary.
+Judge requests include:
 
-### Codex has a different risk shape than direct API calls
+- prompt version and name
+- system prompt
+- rendered prompt
+- full dataset case
+- model output being judged
 
-For Codex-backed execution:
+### Codex
 
-- PromptForge invokes `codex exec` in the current working directory
-- the prompt explicitly tells Codex not to inspect files, run shell commands, or use external tools
-- the stronger runtime guard is the sandbox mode, which defaults to `read-only`
+When provider or judge provider is `codex`, PromptForge shells out to:
+
+- `codex exec`
+
+Current guardrails:
+
+- `--skip-git-repo-check`
+- configured sandbox
+- configured reasoning effort
+- explicit prompt instruction telling Codex not to inspect files, run shell commands, or use external tools for generation
+
+Important nuance:
+
+- Codex still runs in the project working directory, so its risk shape is broader than a pure API request even with a read-only sandbox
+
+## Data Handling Rules
+
+- PromptForge never mutates dataset files.
+- Prompt and scenario source files remain local unless their rendered contents are sent to a provider.
+- Outputs are written locally to:
+  - `outputs.jsonl`
+  - `scores.json`
+  - `comparison.json`
+  - `report.md`
+  - forge session files
+  - the response cache
+- `run.lock.json` records hashes and config, not full prompts or dataset bodies.
+
+## What The App Exposes
+
+The macOS app and helper exchange:
+
+- prompt files
+- prompt metadata
+- review and playground payloads
+- cached connection-status summaries
+
+The app does not render raw API keys back into the UI.
+
+For the app specifically:
+
+- `status.get` and `settings.get` return cached connection information
+- `connections.refresh` performs explicit provider probes
+- empty projects are allowed and do not require secret material just to open
+
+## Logging And Redaction Limits
+
+PromptForge logs structured JSON events to `var/logs/promptforge.log`.
+
+Redaction is key-name based, not full-content scanning.
 
 That means:
 
-- direct OpenAI/OpenRouter generation has a narrower execution surface
-- Codex can be useful when a team prefers Codex auth, but it carries a broader local execution context than plain API calls
+- `api_key`, `secret`, `token`, `password`, and similar keys are masked
+- arbitrary secret-looking strings embedded in generic fields are not automatically detected
 
-## Data handling rules
+Do not assume logs are safe for broad sharing unless you have reviewed them.
 
-- PromptForge never mutates dataset files.
-- Cache writes only store output-side data and metadata, not the original case input.
-- Reports summarize and quote model output evidence; they are meant for human consumption and should be treated as generated artifacts, not scrubbed records.
-- `run.lock.json` stores hashes and config, not full prompts or case bodies.
+## Approval Gates And Risk Boundaries
 
-## Operational guidance
+PromptForge currently has no built-in approval system.
 
-- Keep `.env` local and out of shell history when entering secrets manually.
-- Prefer `pf setup` over editing `.env` by hand if multiple providers are in use.
-- Use `pf doctor` after any provider or model change.
-- Delete `var/state/cache.sqlite3` if you need to invalidate local outputs.
-- Prune `var/runs/` and archive reports intentionally if dataset content is sensitive.
+There is:
 
-## What PromptForge does not currently guarantee
+- no multi-user review workflow
+- no role model
+- no policy engine beyond deterministic hard-fail checks and local prompt-review decisions
 
-- no tenant isolation
+Safety comes from scope reduction:
+
+- evaluate prompts
+- keep artifacts local
+- make promotion explicit
+- keep datasets immutable
+
+## Known Limits
+
 - no at-rest encryption for artifacts
-- no secret manager integration
-- no provider-independent retention guarantees
-- no policy engine beyond hard-fail markers and format rules
+- no secret manager integration beyond Keychain for app-held API keys
+- no tenant isolation
+- no provider-independent retention guarantee
+- no remote audit service
+- no content-aware log scrubbing
 
-## Source of truth
+## Operational Guidance
 
-- [`../src/promptforge/core/config.py`](../src/promptforge/core/config.py)
-- [`../src/promptforge/core/logging.py`](../src/promptforge/core/logging.py)
-- [`../src/promptforge/runtime/gateway.py`](../src/promptforge/runtime/gateway.py)
-- [`../src/promptforge/runtime/run_service.py`](../src/promptforge/runtime/run_service.py)
+- keep `.env` local and out of shell history
+- use `pf setup` rather than hand-editing `.env` when switching providers
+- treat `var/runs/`, `var/forge/`, and `cache.sqlite3` as potentially sensitive local artifacts
+- if a dataset is sensitive, prune or archive artifacts intentionally after use
+- refresh app connections from Settings when you need a live auth check
+
+## Source Of Truth
+
+- [src/promptforge/core/config.py](../src/promptforge/core/config.py)
+- [src/promptforge/core/logging.py](../src/promptforge/core/logging.py)
+- [src/promptforge/runtime/gateway.py](../src/promptforge/runtime/gateway.py)
+- [src/promptforge/prompts/loader.py](../src/promptforge/prompts/loader.py)
+- [src/promptforge/helper/server.py](../src/promptforge/helper/server.py)
+- [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)

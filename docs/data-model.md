@@ -1,155 +1,207 @@
 # Data Model
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge has two kinds of data model:
+PromptForge has no central database schema. Its data model is split across:
 
-- in-memory contracts defined with Pydantic
-- persisted local state written as JSON, JSONL, Markdown, and SQLite rows
+- typed in-memory contracts in Pydantic models
+- project files and prompt-pack files
+- local artifact directories
+- one SQLite cache table
 
-There is no migration framework or central relational database in v1.
+This document maps those pieces to the code and calls out the compatibility
+edges that matter in production use.
 
-## Core entities
+## Core Entities
 
-| Entity | Source | Purpose |
-|---|---|---|
-| `PromptPackManifest` | `src/promptforge/core/models.py` | Names a prompt pack, its output format, and required sections |
-| `PromptPack` | `src/promptforge/core/models.py` | Fully loaded prompt pack, including prompts, schema, and content hash |
-| `PromptBrief` | `src/promptforge/prompts/brief.py` | Per-prompt intent fields such as purpose, expected behavior, and success criteria |
-| `DatasetCase` | `src/promptforge/core/models.py` | One JSONL evaluation case with input, optional context, rubric targets, and format expectations |
-| `RunConfig` | `src/promptforge/core/models.py` | Execution controls such as concurrency, retries, timeout, and failure threshold |
-| `ScoringConfig` | `src/promptforge/core/models.py` | Rubric weights, hard-fail rules, judge model, and tie margin |
-| `ModelExecutionResult` | `src/promptforge/core/models.py` | One case result from generation, including caching status, latency, and provider |
-| `CaseScore` | `src/promptforge/core/models.py` | One scored case with rule checks, trait scores, and hard-fail status |
-| `ScoresArtifact` | `src/promptforge/core/models.py` | Evaluation summary plus all per-case scores |
-| `ComparisonArtifact` | `src/promptforge/core/models.py` | Head-to-head comparison between prompt A and prompt B |
-| `Lockfile` | `src/promptforge/core/models.py` | Reproducibility record with hashes, config, Python version, and package version |
-| `CachedResponse` | `src/promptforge/core/models.py` | Local memoized generation output stored in SQLite |
-| `ForgeSessionManifest` | `src/promptforge/forge/models.py` | Metadata for one prompt-workspace session under `var/forge/` |
-| `ForgeHistory` | `src/promptforge/forge/models.py` | Revision log for a prompt workspace session |
-| `ChatHistory` | `src/promptforge/forge/models.py` | Prompt-scoped agent chat turns stored with the forge session |
+| Entity | Source | Persisted as | Purpose |
+|---|---|---|---|
+| `ProjectMetadata` | `src/promptforge/project.py` | `.promptforge/project.json` | Project defaults, provider/model choices, dataset defaults, last opened prompt |
+| `PromptPackManifest` | `src/promptforge/core/models.py` | `prompt_packs/<version>/manifest.yaml` | Prompt version, display name, description, output format, required sections |
+| `PromptBrief` | `src/promptforge/prompts/brief.py` | `prompt_packs/<version>/prompt.json` | Prompt authoring metadata used by the app and forge workspace |
+| `PromptPack` | `src/promptforge/core/models.py` | loaded from prompt-pack files | Fully loaded prompt, schema, and content hash |
+| `DatasetCase` | `src/promptforge/core/models.py` | one JSONL line | Runtime evaluation case with `input`, optional `context`, rubric targets, and expectations |
+| `ScenarioSuite` | `src/promptforge/scenarios/models.py` | `scenarios/<suite_id>.json` | Saved case set used for review-style testing |
+| `WorkspaceState` | `src/promptforge/forge/workspace.py` | `var/state/forge_workspace.json` | Active prompt and prompt-to-session mapping |
+| `ForgeSessionManifest` | `src/promptforge/forge/models.py` | `var/forge/<session_id>/session.json` | Session identity, working and baseline dirs, dataset paths, model/provider config |
+| `ForgeHistory` | `src/promptforge/forge/models.py` | `var/forge/<session_id>/history.json` | Revisions, benchmarks, reviews, decisions, builder actions, playground runs |
+| `PreparedAgentEdit` | `src/promptforge/forge/models.py` | `var/forge/<session_id>/pending_edits.json` | Staged proposal waiting for apply or discard |
+| `RunManifest` | `src/promptforge/core/models.py` | `var/runs/<run_id>/run.json` | Identity of an evaluation or comparison run |
+| `Lockfile` | `src/promptforge/core/models.py` | `var/runs/<run_id>/run.lock.json` | Reproducibility metadata: hashes, config, versions, provider choice |
+| `ScoresArtifact` | `src/promptforge/core/models.py` | `var/runs/<run_id>/scores.json` | Per-case and aggregate evaluation scores |
+| `ComparisonArtifact` | `src/promptforge/core/models.py` | `var/runs/<run_id>/comparison.json` | Head-to-head comparison results |
+| `CachedResponse` | `src/promptforge/core/models.py` | `response_cache.response_json` | Serialized successful generation result |
 
-## Persisted state
-
-### Filesystem artifacts
-
-Each run creates a directory under `var/runs/<run_id>/`.
-
-| File | Written by | Meaning |
-|---|---|---|
-| `run.json` | `ArtifactStore.write_manifest()` | Run manifest and high-level metadata |
-| `run.lock.json` | `EvaluationService.run()` / `compare()` | Reproducibility record with hashes and config |
-| `outputs.jsonl` | `EvaluationService.run()` / `compare()` | Raw model outputs; compare runs contain paired `a` and `b` rows |
-| `scores.json` | `EvaluationService.run()` / `compare()` | Evaluation runs store one `ScoresArtifact`; comparison runs store `{prompt_a, prompt_b}` |
-| `comparison.json` | `EvaluationService.run()` / `compare()` | Placeholder for single runs, full `ComparisonArtifact` for compare runs |
-| `report.md` | `render_evaluation_report()` / `render_comparison_report()` | Human-readable summary |
-
-### Project and prompt workspace files
-
-| File | Written by | Meaning |
-|---|---|---|
-| `.promptforge/project.json` | `PromptForgeProject.save()` | Project-level defaults such as provider, models, datasets, and last opened prompt |
-| `prompt_packs/<version>/prompt.json` | `save_prompt_brief()` / `prompt.save` | Prompt-level intent fields used by the app overview and agent context |
-| `var/forge/<session_id>/session.json` | `ForgeSession._persist()` | Active forge session manifest for one prompt |
-| `var/forge/<session_id>/history.json` | `ForgeSession._persist()` | Prompt workspace revisions, benchmarks, and restore history |
-| `var/forge/<session_id>/pending_edits.json` | `ForgeSession._persist()` | Staged proposals waiting for apply/discard |
-| `var/forge/<session_id>/chat_history.json` | `ForgeSession._persist()` | Agent chat turns for the prompt workspace |
-
-### SQLite cache
-
-`var/state/cache.sqlite3` contains a single table: `response_cache`.
-
-| Column | Meaning |
-|---|---|
-| `cache_key` | Primary key derived from prompt version, case ID, model, and config hash |
-| `prompt_version` | Prompt pack version |
-| `case_id` | Dataset case ID |
-| `model` | Generation model |
-| `config_hash` | Stable hash of prompt pack, dataset, provider choice, and configs |
-| `response_json` | Serialized `CachedResponse` payload |
-| `created_at` | UTC timestamp |
-
-## Entity relationships
-
-```mermaid
-erDiagram
-  PROMPT_PACK {
-    string version PK
-    string content_hash
-    string output_format
-  }
-
-  DATASET {
-    string path PK
-    string content_hash
-  }
-
-  DATASET_CASE {
-    string id PK
-    string input_json
-  }
-
-  RUN_MANIFEST {
-    string run_id PK
-    string kind
-    string provider
-    string judge_provider
-    string config_hash
-    string output_dir
-  }
-
-  LOCKFILE {
-    string run_id PK
-    string dataset_hash
-    string prompt_pack_hash
-    string python_version
-    string package_version
-  }
-
-  MODEL_OUTPUT {
-    string run_id FK
-    string case_id FK
-    string provider
-    boolean cached
-  }
-
-  SCORE_CASE {
-    string run_id FK
-    string case_id FK
-    float effective_weighted_score
-    boolean hard_fail
-  }
-
-  COMPARISON_ARTIFACT {
-    string run_id PK
-    string prompt_a
-    string prompt_b
-    string dataset_hash
-  }
-
-  RESPONSE_CACHE {
-    string cache_key PK
-    string case_id
-    string config_hash
-    string response_json
-  }
-
-  DATASET ||--|{ DATASET_CASE : contains
-  PROMPT_PACK ||--o{ RUN_MANIFEST : evaluated_in
-  DATASET ||--o{ RUN_MANIFEST : evaluated_on
-  RUN_MANIFEST ||--|| LOCKFILE : has
-  RUN_MANIFEST ||--o{ MODEL_OUTPUT : writes
-  RUN_MANIFEST ||--o{ SCORE_CASE : writes
-  RUN_MANIFEST ||--o| COMPARISON_ARTIFACT : may_write
-  DATASET_CASE ||--o{ MODEL_OUTPUT : produces
-  DATASET_CASE ||--o{ SCORE_CASE : scored_as
-  RESPONSE_CACHE }o--|| DATASET_CASE : memoizes
-```
-
-## Run directory structure
+## Persistent Layout
 
 ```mermaid
 flowchart TB
+  Root["PromptForge project root"] --> Project[".promptforge/project.json"]
+  Root --> Packs["prompt_packs/<version>/..."]
+  Root --> Datasets["datasets/*.jsonl"]
+  Root --> Scenarios["scenarios/*.json"]
+  Root --> State["var/state/forge_workspace.json"]
+  Root --> Cache["var/state/cache.sqlite3"]
+  Root --> Forge["var/forge/<session_id>/..."]
+  Root --> Runs["var/runs/<run_id>/..."]
+  Root --> Logs["var/logs/promptforge.log"]
+```
+
+## Relationship Diagram
+
+```mermaid
+erDiagram
+  PROJECT ||--o{ PROMPT_PACK : contains
+  PROJECT ||--o{ DATASET : contains
+  PROJECT ||--o{ SCENARIO_SUITE : contains
+  PROJECT ||--|| WORKSPACE_STATE : tracks
+  WORKSPACE_STATE ||--o{ FORGE_SESSION : maps_prompt_to_session
+  PROMPT_PACK ||--o{ FORGE_SESSION : has_working_copy
+  PROMPT_PACK ||--o{ RUN_MANIFEST : evaluated_in
+  DATASET ||--o{ RUN_MANIFEST : evaluated_on
+  RUN_MANIFEST ||--|| LOCKFILE : has
+  RUN_MANIFEST ||--o{ CASE_SCORE : writes
+  RUN_MANIFEST ||--o| COMPARISON_ARTIFACT : may_write
+  FORGE_SESSION ||--o{ FORGE_REVISION : records
+  FORGE_SESSION ||--o{ REVIEW_SUMMARY : records
+  FORGE_SESSION ||--o{ DECISION_RECORD : records
+  FORGE_SESSION ||--o{ BUILDER_ACTION : records
+  SCENARIO_SUITE ||--o{ SCENARIO_CASE : contains
+  SCENARIO_CASE ||--o{ SCENARIO_ASSERTION : contains
+  RESPONSE_CACHE }o--|| DATASET : memoizes_requests_for
+```
+
+## Prompt-Pack Model
+
+Required runtime files:
+
+- `manifest.yaml`
+- `system.md`
+- `user_template.md`
+- `variables.schema.json`
+
+PromptForge also uses:
+
+- `prompt.json`
+
+`PromptBrief` currently contains:
+
+- `purpose`
+- `expected_behavior`
+- `success_criteria`
+- `baseline_prompt_ref`
+- `primary_scenario_suites`
+- `owner`
+- `audience`
+- `release_notes`
+- `builder_agent_model`
+- `builder_permission_mode`
+- `research_policy`
+- `prompt_blocks`
+
+Important note:
+
+- `prompt_blocks` is still persisted and loaded for compatibility even though the current app centers on full-file editing rather than a prompt-canvas UI.
+
+Sources:
+
+- [src/promptforge/prompts/loader.py](../src/promptforge/prompts/loader.py)
+- [src/promptforge/prompts/brief.py](../src/promptforge/prompts/brief.py)
+- [src/promptforge/forge/workspace.py](../src/promptforge/forge/workspace.py)
+
+## Dataset Model
+
+Datasets are newline-delimited JSON.
+
+Each line becomes a `DatasetCase` with:
+
+- `id`
+- `input`
+- optional `context`
+- optional `rubric_targets`
+- optional `format_expectations`
+
+If `id` is missing, the loader synthesizes `line-0001`, `line-0002`, and so on.
+
+Inputs are validated against the active prompt pack's `variables.schema.json`
+before provider execution starts.
+
+Sources:
+
+- [src/promptforge/datasets/loader.py](../src/promptforge/datasets/loader.py)
+- [src/promptforge/core/models.py](../src/promptforge/core/models.py)
+
+## Scenario And Review Model
+
+`ScenarioSuite` is the saved case-set contract for review runs.
+
+Each suite contains:
+
+- suite metadata: `suite_id`, `name`, `description`, `linked_prompts`
+- `cases`
+
+Each case contains:
+
+- `case_id`
+- `title`
+- `input`
+- optional `context`
+- optional `rubric_targets`
+- optional `format_expectations`
+- `assertions`
+- `tags`
+- `notes`
+
+Supported assertion kinds:
+
+- `required_string`
+- `forbidden_string`
+- `required_section`
+- `max_words`
+- `trait_minimum`
+- `max_latency_ms`
+- `max_total_tokens`
+
+Sources:
+
+- [src/promptforge/scenarios/models.py](../src/promptforge/scenarios/models.py)
+- [src/promptforge/scenarios/service.py](../src/promptforge/scenarios/service.py)
+- [src/promptforge/forge/service.py](../src/promptforge/forge/service.py)
+
+## Forge Session Model
+
+Each prompt session lives under `var/forge/<session_id>/`.
+
+Key files:
+
+| File | Meaning |
+|---|---|
+| `session.json` | session manifest and static session configuration |
+| `history.json` | revisions, benchmark summaries, reviews, decisions, builder actions, playground runs |
+| `pending_edits.json` | staged proposals waiting for apply or discard |
+| `chat_history.json` | persisted agent chat history |
+
+The session also keeps:
+
+- a baseline prompt snapshot
+- a working prompt directory
+- revision snapshots
+- proposal staging directories
+
+The app can view a prompt without creating a session. Session creation is lazy.
+
+Sources:
+
+- [src/promptforge/forge/models.py](../src/promptforge/forge/models.py)
+- [src/promptforge/forge/service.py](../src/promptforge/forge/service.py)
+- [src/promptforge/forge/workspace.py](../src/promptforge/forge/workspace.py)
+
+## Run Artifact Model
+
+Every run directory under `var/runs/<run_id>/` contains:
+
+```mermaid
+flowchart TD
   RunDir["var/runs/<run_id>/"] --> RunJson["run.json"]
   RunDir --> Lock["run.lock.json"]
   RunDir --> Outputs["outputs.jsonl"]
@@ -158,45 +210,72 @@ flowchart TB
   RunDir --> Report["report.md"]
 ```
 
-## Versioning and migration notes
+Two run kinds exist:
+
+- `evaluation`
+- `comparison`
+
+Important shape difference:
+
+- for evaluation runs, `scores.json` is one `ScoresArtifact`
+- for comparison runs, `scores.json` is an object with `prompt_a` and `prompt_b` evaluation artifacts
+
+`comparison.json` is:
+
+- a placeholder object for evaluation runs
+- a full `ComparisonArtifact` for comparison runs
+
+Sources:
+
+- [src/promptforge/runtime/artifacts.py](../src/promptforge/runtime/artifacts.py)
+- [src/promptforge/runtime/run_service.py](../src/promptforge/runtime/run_service.py)
+- [src/promptforge/runtime/report_service.py](../src/promptforge/runtime/report_service.py)
+
+## SQLite Cache
+
+`var/state/cache.sqlite3` contains one table: `response_cache`.
+
+| Column | Meaning |
+|---|---|
+| `cache_key` | primary key derived from prompt version, case ID, model, and config hash |
+| `prompt_version` | prompt pack version |
+| `case_id` | dataset case ID |
+| `model` | generation model |
+| `config_hash` | stable hash of prompt pack, dataset, provider, and config |
+| `response_json` | serialized `CachedResponse` |
+| `created_at` | UTC timestamp |
+
+This cache stores successful generation results, not full dataset rows.
+
+Source:
+
+- [src/promptforge/runtime/cache.py](../src/promptforge/runtime/cache.py)
+
+## Versioning And Compatibility Notes
 
 ### Prompt packs
 
-- Prompt packs include `apiVersion`, `version`, `name`, `output_format`, and `required_sections`.
-- Prompt packs now also include `prompt.json` for prompt intent metadata. The loader auto-creates a default file when older prompt packs are opened in the app or workspace service.
-- `apiVersion` is loaded and stored, but current runtime logic does not branch on it. Treat it as metadata today.
-- Prompt pack changes affect the `prompt_pack_hash`, which feeds the `config_hash`, which invalidates cache reuse automatically.
+- `apiVersion` is loaded and preserved from `manifest.yaml`.
+- Current runtime behavior does not branch on `apiVersion`.
+- Opening an older prompt pack can auto-create a default `prompt.json`.
 
 ### Forge sessions
 
-- Forge sessions are stored under `var/forge/<session_id>/`.
-- Session creation is lazy in the app flow: a prompt can be viewed without creating a session.
-- A session is created when the user starts agent chat, stages edits, saves through the active workspace session, or explicitly runs a benchmark/evaluation.
-- Revisions may exist without benchmark data because prompt saves and restores no longer auto-run the quick benchmark.
+- session creation is lazy
+- session restoration checks config compatibility before reuse
+- invalid or stale session mappings are removed from `forge_workspace.json` when detected
 
-### Datasets
+### Cache
 
-- Datasets are plain JSONL files.
-- Case IDs are optional in source files; the loader will synthesize `line-0001`, `line-0002`, and so on if missing.
-- Any dataset content change changes `dataset_hash`, which also invalidates cache reuse.
+- there is no migration framework for `cache.sqlite3`
+- if cache correctness is in doubt, delete the database and rerun
 
-### Cache schema
+### Artifacts
 
-- The SQLite table is created lazily inside `ResponseCache.__init__()`.
-- There is no migration framework.
-- If cache schema changes or the cache becomes suspect, delete `var/state/cache.sqlite3` and rerun.
+- `run.lock.json` is the closest thing to a reproducibility contract
+- report rebuilds depend on saved `scores.json` or `comparison.json`; they do not rerun models
 
-### Artifact schemas
+### Project root assumptions
 
-- Evaluation `scores.json` matches `ScoresArtifact`.
-- Comparison `scores.json` is intentionally different: it is a JSON object with `prompt_a` and `prompt_b` keys, each containing a full evaluation artifact.
-- `run.lock.json` is the closest thing to a stable reproducibility contract. It records package version, Python version, provider choice, hashes, and effective configs.
-
-## Source of truth
-
-- [`../src/promptforge/core/models.py`](../src/promptforge/core/models.py)
-- [`../src/promptforge/forge/models.py`](../src/promptforge/forge/models.py)
-- [`../src/promptforge/prompts/brief.py`](../src/promptforge/prompts/brief.py)
-- [`../src/promptforge/runtime/artifacts.py`](../src/promptforge/runtime/artifacts.py)
-- [`../src/promptforge/runtime/cache.py`](../src/promptforge/runtime/cache.py)
-- [`../src/promptforge/runtime/run_service.py`](../src/promptforge/runtime/run_service.py)
+- the helper and forge workspace currently resolve several paths relative to the active project cwd
+- each helper process therefore owns exactly one project root at a time

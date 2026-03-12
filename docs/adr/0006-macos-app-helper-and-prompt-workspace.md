@@ -1,66 +1,70 @@
 # ADR-0006: macOS App, Local Helper, and Prompt Workspace as the Primary Interactive Surface
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
 - Status: Accepted
 
 ## Context
 
-The original PromptForge shape was CLI-first. That worked for setup, status,
-and batch evaluation, but it was too blunt for interactive prompt iteration.
+PromptForge started as a CLI-first prompt evaluation tool. That is still true
+for setup, status, batch execution, and reporting, but it is not sufficient for
+interactive prompt authoring.
 
-The current implementation now has:
+The current implementation includes:
 
 - a SwiftUI macOS app
-- a local Unix-socket helper process
-- prompt-scoped overview metadata in `prompt_packs/<version>/prompt.json`
-- prompt-scoped forge sessions in `var/forge/<session_id>/`
-- an agent chat flow that can converse, stage edits, and trigger evaluations
+- a local Unix-socket helper
+- prompt-scoped forge sessions under `var/forge/`
+- prompt-scoped metadata in `prompt.json`
+- an interactive workspace with navigator, Forgie chat, editor, cases, results, and inspector
 
-That interactive surface needs different behavior than the batch CLI:
+Interactive prompt work needs different behavior than the batch CLI:
 
-- prompt open should be cheap
-- prompt files and prompt intent should be viewable before session startup
-- secrets should be surfaced through app-safe connection state, not raw values
-- prompt history, pending edits, and chat state should stay local and prompt-scoped
+- opening a prompt should be cheap
+- empty projects should still open cleanly
+- sessions should be created lazily
+- edits should be staged or applied through revision-aware workspace flows
+- provider connection checks should not make normal app navigation slow
 
 ## Decision
 
 Treat the macOS app plus local helper as the primary interactive surface for
-prompt work, while keeping the CLI for setup, status, and batch execution.
+prompt work, while keeping the CLI as the primary setup and batch surface.
 
 Concretely:
 
-- `pf forge` launches the app for the current project
+- `pf forge` launches `PromptForge.app`
 - the app talks only to the local helper over a Unix socket
-- prompt packs now include `prompt.json` for prompt intent fields
-- the app shows a prompt overview and a separate editor/chat surface
-- normal chat is routed through agent chat instead of forcing slash commands
-- forge sessions are created lazily on the first real interactive action
-- quick benchmarks and full evaluations are explicit user actions, not hidden prompt-open work
+- the helper exposes prompt, scenario, review, and agent RPCs
+- prompt files and prompt metadata can be viewed without creating a forge session
+- the first real action, such as chat, save, quick check, suite run, or playground run, creates or reloads the session lazily
+- app connection probes are explicit through `connections.refresh`
+- the app prefers a bundled Python engine, with explicit or debug fallbacks for development
 
 ## Consequences
 
 Positive:
 
-- prompt iteration is faster to understand because prompt intent, prompt files,
-  chat, and benchmark history are separated in the UI
-- prompt open latency is reduced because prompt dashboards do not auto-run benchmarks
-- the app can show auth state and onboarding without exposing secrets
-- prompt history, pending edits, and chat context stay local and inspectable
+- prompt authoring, case editing, and review have a native local workspace
+- prompt open stays fast because it does not implicitly benchmark
+- empty projects are valid onboarding states
+- app auth state can be shown without exposing raw secret values
+- prompt revisions, proposals, reviews, and decisions remain local and inspectable
 
 Tradeoffs:
 
-- there are now two first-class surfaces to maintain: app/helper and CLI
-- helper RPC shape becomes part of the effective architecture surface
-- first agent use on a prompt still pays forge-session startup cost
-- Codex-backed chat can still feel slower than direct OpenAI-compatible calls
+- there are now two first-class surfaces to maintain: CLI and app/helper
+- helper RPCs are part of the effective architecture contract
+- the helper is still single-project-per-process because it binds itself to one cwd
+- interactive performance still depends on provider choice, especially for Codex
 
-## Evidence in code
+## Evidence In Code
 
-- App shell: [`../../apps/macos/PromptForge/PromptForge/ContentView.swift`](../../apps/macos/PromptForge/PromptForge/ContentView.swift)
-- App model and helper client: [`../../apps/macos/PromptForge/PromptForge/Item.swift`](../../apps/macos/PromptForge/PromptForge/Item.swift)
-- Helper RPC surface: [`../../src/promptforge/helper/server.py`](../../src/promptforge/helper/server.py)
-- Prompt workspace service: [`../../src/promptforge/forge/workspace.py`](../../src/promptforge/forge/workspace.py)
-- Forge session behavior: [`../../src/promptforge/forge/service.py`](../../src/promptforge/forge/service.py)
-- Prompt intent metadata: [`../../src/promptforge/prompts/brief.py`](../../src/promptforge/prompts/brief.py)
+- App shell: [../../apps/macos/PromptForge/PromptForge/ContentView.swift](../../apps/macos/PromptForge/PromptForge/ContentView.swift)
+- App model and helper client: [../../apps/macos/PromptForge/PromptForge/Item.swift](../../apps/macos/PromptForge/PromptForge/Item.swift)
+- App runtime locator: [../../apps/macos/PromptForge/PromptForge/PromptForgeApp.swift](../../apps/macos/PromptForge/PromptForge/PromptForgeApp.swift)
+- Bundled runtime build script: [../../apps/macos/PromptForge/scripts/bundle_engine.sh](../../apps/macos/PromptForge/scripts/bundle_engine.sh)
+- Helper RPC surface: [../../src/promptforge/helper/server.py](../../src/promptforge/helper/server.py)
+- Workspace service: [../../src/promptforge/forge/workspace.py](../../src/promptforge/forge/workspace.py)
+- Forge session behavior: [../../src/promptforge/forge/service.py](../../src/promptforge/forge/service.py)
+- Prompt metadata: [../../src/promptforge/prompts/brief.py](../../src/promptforge/prompts/brief.py)

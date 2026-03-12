@@ -1,25 +1,22 @@
 # Operations
 
-_Last verified against commit `065f5120dee568fe5b33c7565e7d62942d325db0`._
+_Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 
-PromptForge is simple to operate because it is a local macOS app plus local CLI
-and helper processes with local artifacts. There is no remote service tier and
-no external database to repair.
+PromptForge is operated locally. There is no remote control plane to diagnose.
 
-The operational surface is:
+Your operational surface is:
 
-- `.env` for auth and defaults
-- macOS Keychain for app-managed OpenAI/OpenRouter API keys
-- `pf setup` and `pf doctor`
-- `PromptForge.app` plus its local helper for interactive work
-- `var/runs/` for run outputs
-- `var/forge/` for prompt workspace sessions, revisions, pending edits, and chat history
-- `var/state/cache.sqlite3` for cached model outputs
-- `var/logs/promptforge.log` for structured lifecycle logs
+- `.env` and provider defaults
+- `pf setup`, `pf status`, and `pf doctor`
+- `PromptForge.app` and its local helper
+- `var/runs/` for batch artifacts
+- `var/forge/` for prompt sessions, revisions, reviews, and decisions
+- `var/state/cache.sqlite3` for generation cache
+- `var/logs/promptforge.log` for structured logs
 
-## Day-1 setup
+## Day-1 Setup
 
-### 1. Prepare the environment
+### 1. Bootstrap the environment
 
 ```bash
 make bootstrap
@@ -29,212 +26,272 @@ make bootstrap
 Requirements:
 
 - Python 3.11+
-- one provider auth path:
-  - `OPENAI_API_KEY`, or
-  - `OPENROUTER_API_KEY`, or
-  - successful `codex login`
+- one working provider auth path
+- for the macOS app, a built or installed `PromptForge.app`
 
-### 2. Run onboarding
+### 2. Initialize auth and defaults
 
 ```bash
 pf setup
 ```
 
-The wizard will:
+The wizard can:
 
-- create `.env` if needed
-- configure provider defaults
-- prompt for API keys where required
-- help establish Codex login
+- create `.env` from `.env.example`
+- choose default provider and judge provider
+- choose generation and judge models
+- collect OpenAI or OpenRouter keys
+- inspect or launch Codex login
+- run `pf doctor`
 
-### 3. Validate the workstation
+### 3. Validate before using the repo
 
 ```bash
 pf doctor
+pf status
 ```
 
 Proceed only when:
 
-- prompt pack resolution is ready
-- dataset resolution is ready
+- prompt pack resolution works
+- dataset resolution works
 - provider auth is ready
 - model access returns `PF_OK`
 
-## Day-2 operations
+## First Project Bring-Up
 
-### Run a single evaluation
+If you start with an empty folder:
+
+```bash
+mkdir my-prompt-project
+cd my-prompt-project
+pf status
+pf prompts create --prompt draft-v1 --name "Draft v1"
+pf forge
+```
+
+Important:
+
+- empty projects are supported in the app
+- the first app open can show a no-prompts workspace instead of failing
+- create or import a prompt pack from the app when needed
+
+## Day-2 Routine Operations
+
+### Run one evaluation
 
 ```bash
 pf run --prompt v1 --dataset datasets/core.jsonl
 ```
 
-### Compare two versions
+### Compare two prompt versions
 
 ```bash
 pf compare --a v1 --b v2 --dataset datasets/core.jsonl
 ```
 
-### Inspect the result
-
-- read `report.md` for a human summary
-- read `scores.json` for machine-readable detail
-- read `run.lock.json` for reproducibility data
-
-### Work interactively in the app
-
-```bash
-pf forge
-```
-
-Operational notes for the app flow:
-
-- Opening a prompt does not auto-create a forge session or auto-run a benchmark.
-- The first agent chat, staged edit, save into a working session, or explicit benchmark/evaluation creates the prompt session lazily.
-- Benchmark history in the app is prompt-scoped. Empty history on a newly opened prompt is expected until you explicitly run `Run Bench` or `Full Eval`.
-
-### Rebuild a report
+### Inspect or rebuild a report
 
 ```bash
 pf report --run <run_id>
 ```
 
-## Operator loop
+### Work interactively
+
+```bash
+pf forge
+```
+
+Operational behavior in the app:
+
+- prompt open is cheap
+- forge sessions are created lazily
+- `Check Prompt`, `Run Cases`, and `Try Input` are explicit actions
+- provider connection checks in the app are refreshed on demand from Settings
+
+## App Build And Packaging Notes
+
+For source builds, the Xcode app target currently bundles a Python engine by
+copying:
+
+- `src/`
+- `datasets/`
+- `.venv/`
+
+into the app resources through:
+
+- [apps/macos/PromptForge/scripts/bundle_engine.sh](../apps/macos/PromptForge/scripts/bundle_engine.sh)
+
+Operational implication:
+
+- before building the app, make sure the local `.venv` is complete and healthy
+- if the app reports a missing or corrupt bundled runtime, rebuild the app after rebuilding the local engine environment
+
+## Operator Loop
 
 ```mermaid
 flowchart TD
   Setup["pf setup"] --> Doctor["pf doctor"]
-  Doctor --> Run["pf run or pf compare"]
-  Run --> Inspect["Inspect report.md and scores.json"]
-  Inspect --> Promote["Promote winner or revise prompt pack"]
-  Promote --> Run
-  Inspect --> Recover["Troubleshoot or recover"]
+  Doctor --> Work["pf forge or pf run"]
+  Work --> Review["Inspect report.md, Results, or review JSON"]
+  Review --> Decide["Promote, revise, or rollback"]
+  Decide --> Work
+  Review --> Recover["Troubleshoot auth, cache, runtime, or artifacts"]
   Recover --> Doctor
 ```
 
-## Monitoring, logging, and status checks
+## Monitoring And Status Checks
+
+### Routine checks
+
+| Check | Command or file | What to look for |
+|---|---|---|
+| Environment health | `pf doctor` | auth readiness, prompt and dataset resolution, model access |
+| Project defaults | `pf status` | provider, judge provider, model, active prompt |
+| App connection state | Settings -> refresh connections | cached vs refreshed provider readiness |
+| Recent runs | `ls -lt var/runs` | expected run IDs and timestamps |
+| Recent forge sessions | `ls -lt var/forge` | expected session IDs and recent writes |
+| Logs | `tail -f var/logs/promptforge.log` | `run_started`, `case_executed`, `run_completed` |
+| Cache schema | `sqlite3 var/state/cache.sqlite3 '.schema response_cache'` | table exists and is readable |
+| Reproducibility | `var/runs/<run_id>/run.lock.json` | intended model, provider, hashes, package version |
 
 ### What exists today
 
-- structured JSON logs in `var/logs/promptforge.log`
-- CLI exit codes
-- run directories under `var/runs/`
-- cache state in `var/state/cache.sqlite3`
+- structured JSON file logs
+- local artifact directories
+- local cache database
+- app helper event stream
 
 ### What does not exist today
 
 - no metrics endpoint
+- no centralized dashboard
 - no log rotation
-- no dashboard
-- no background job status service
+- no remote health API
 
-### Routine status checks
-
-| Check | Command or file | What to look for |
-|---|---|---|
-| Environment health | `pf doctor` | broken auth, missing dataset, bad prompt pack path |
-| App auth state | PromptForge settings UI | provider connected state, Keychain-loaded keys, Codex login state |
-| Recent run history | `ls var/runs` | expected run IDs and timestamps |
-| Recent forge sessions | `ls var/forge` | expected session IDs, pending edit state, chat history |
-| Structured logs | `tail -f var/logs/promptforge.log` | `run_started`, `case_executed`, `run_completed` |
-| Cache state | `sqlite3 var/state/cache.sqlite3 '.schema response_cache'` | table exists and is queryable |
-| Reproducibility | `var/runs/<run_id>/run.lock.json` | expected hashes, package version, provider settings |
-
-## Incident response
+## Incident Response
 
 ### Symptom: provider auth is broken
 
 Actions:
 
-1. Run `pf doctor`
-2. Rerun `pf setup`
-3. Verify the correct provider is selected in `.env`
-4. Retry with a known-good model name for that provider
+1. run `pf doctor`
+2. rerun `pf setup`
+3. verify the chosen provider and model
+4. if using the app, open Settings and refresh connections
 
-### Symptom: a run exits before all artifacts exist
-
-This can happen if an exception escapes before the final persistence phase.
+### Symptom: `pf forge` cannot open or helper will not start
 
 Actions:
 
-1. Inspect `var/runs/<run_id>/`
-2. Check whether `run.json` and `run.lock.json` exist
-3. Check `var/logs/promptforge.log`
-4. Rerun the same command
+1. verify that `PromptForge.app` exists
+2. if launching from source, rebuild the app after rebuilding `.venv`
+3. inspect the app error for missing bundled runtime
+4. for debug runs, confirm `--engine-root` or saved engine root still points to a valid runtime
+
+### Symptom: a run created `run.json` but not the rest of the files
+
+Actions:
+
+1. inspect `var/runs/<run_id>/`
+2. read `run.lock.json`
+3. inspect `var/logs/promptforge.log`
+4. rerun the same command
 
 Recovery note:
 
-- successful uncached generations may already be in `var/state/cache.sqlite3`, so reruns may be cheaper even if the run directory is incomplete
+- successful generations may already be cached, so the rerun can still be faster than the first attempt
 
-### Symptom: suspicious or stale results
-
-Actions:
-
-1. Inspect `run.lock.json` for provider, model, and config hash
-2. Confirm the prompt pack and dataset hashes are the expected ones
-3. If cache reuse is no longer trusted, delete `var/state/cache.sqlite3`
-4. Rerun the command
-
-### Symptom: app chat feels slow
+### Symptom: results look stale or suspicious
 
 Actions:
 
-1. Confirm you are not using a cold `codex` provider path if low-latency chat matters
-2. Open the prompt once and send a second message; the first agent interaction still pays forge-session startup cost
-3. Avoid assuming prompt open should populate benchmark history; benchmarks are now explicit actions
-4. If the delay is still extreme, inspect `var/logs/promptforge.log` and helper stderr for provider startup issues
+1. inspect `run.lock.json`
+2. confirm prompt pack hash and dataset hash
+3. delete `var/state/cache.sqlite3` if cache reuse is no longer trusted
+4. rerun
 
-### Symptom: compare output is confusing
+### Symptom: app prompt history or review state looks wrong
 
 Actions:
 
-1. Open the comparison run directory
-2. Read `comparison.json`
-3. Read both child evaluation artifacts referenced in `run.json.notes`
-4. Validate whether hard-fails, not score deltas, drove the winner
+1. inspect `var/state/forge_workspace.json`
+2. inspect the relevant `var/forge/<session_id>/session.json` and `history.json`
+3. use revision restore or baseline promotion inside the app or helper-backed flows
 
-## Rollback and recovery
+PromptForge now validates staged edits before swapping them into the working
+copy, so malformed staged changes should not corrupt the live prompt.
 
-There is no dedicated rollback command. Rollback is operationally simple because
-PromptForge does not mutate datasets or remote state.
+### Symptom: `Run Cases` or review feels slow
 
-Rollback options:
+Actions:
 
-- rerun a known-good prompt pack version
-- compare the current candidate against the last known-good version
-- restore a previous Git commit containing the prompt pack you trust
+1. check provider choice; Codex can feel slower than direct API calls
+2. remember that the first real action on a prompt may create the forge session
+3. inspect logs for provider timeouts or repeated retries
 
-Recovery steps after a bad prompt change:
+## Rollback And Recovery
 
-1. identify the last known-good prompt pack version or commit
-2. run `pf compare --a <known-good> --b <candidate> --dataset ...`
-3. confirm the older version wins or avoids hard-fails
-4. keep routing work through the known-good prompt pack
+There is no global rollback command because PromptForge is file-backed and local.
 
-## Cleanup tasks
+Your recovery tools are:
 
-### Safe to remove
+- prompt version comparison with `pf compare`
+- forge revision restore
+- baseline promotion
+- Git history
+- cache invalidation
+
+### Recovery playbook after a bad prompt change
+
+1. identify the last known-good prompt version or Git commit
+2. compare the candidate against that baseline
+3. inspect hard-fails, not just average score
+4. restore or promote as needed
+5. keep using the known-good version until the candidate passes
+
+```mermaid
+flowchart TD
+  BadChange["Prompt regression detected"] --> Compare["Run pf compare or review Results"]
+  Compare --> Decide{Known-good version wins?}
+  Decide -->|Yes| Restore["Restore revision or revert to known-good prompt"]
+  Decide -->|No| Investigate["Inspect failures, logs, and artifacts"]
+  Restore --> Validate["Run doctor / run / suite again"]
+  Investigate --> Validate
+```
+
+## Safe Cleanup
+
+Safe to delete when you understand the consequences:
 
 - old run directories under `var/runs/`
-- `var/state/cache.sqlite3` if you want to force uncached reruns
-- `var/logs/promptforge.log` if you have archived it elsewhere
+- `var/state/cache.sqlite3` to force uncached reruns
+- `var/logs/promptforge.log` after archiving if needed
+- stale forge session directories under `var/forge/` if you intentionally want to discard local workspace history
 
-### Recreated automatically
+Do not delete casually:
 
-- `var/logs/`
-- `var/state/`
-- `var/runs/`
-- `response_cache` table inside `cache.sqlite3`
+- `.promptforge/project.json`
+- active prompt packs
+- datasets
+- scenarios
 
-## Operational boundaries
+## Operator Checklist
 
-- PromptForge is designed for local or CI-style execution, not shared multi-user service operation.
-- Codex runs execute in the current working directory and use the configured sandbox; review `PF_CODEX_SANDBOX` if your operational policy is stricter than the default.
-- There is no retention manager for outputs. If datasets or outputs are sensitive, operators must manage storage lifecycle explicitly.
+- [ ] `pf doctor` passes
+- [ ] correct provider and model are selected
+- [ ] current prompt and dataset are the ones you intended
+- [ ] run artifacts exist and include `run.lock.json`
+- [ ] review evidence is readable enough for stakeholders
+- [ ] secrets are not being copied into reports or logs
 
-## Source of truth
+## Source Of Truth
 
-- [`../src/promptforge/cli.py`](../src/promptforge/cli.py)
-- [`../src/promptforge/runtime/run_service.py`](../src/promptforge/runtime/run_service.py)
-- [`../src/promptforge/runtime/artifacts.py`](../src/promptforge/runtime/artifacts.py)
-- [`../src/promptforge/runtime/cache.py`](../src/promptforge/runtime/cache.py)
-- [`../src/promptforge/core/logging.py`](../src/promptforge/core/logging.py)
+- [src/promptforge/cli.py](../src/promptforge/cli.py)
+- [src/promptforge/setup_wizard.py](../src/promptforge/setup_wizard.py)
+- [src/promptforge/helper/server.py](../src/promptforge/helper/server.py)
+- [src/promptforge/forge/workspace.py](../src/promptforge/forge/workspace.py)
+- [src/promptforge/forge/service.py](../src/promptforge/forge/service.py)
+- [src/promptforge/core/logging.py](../src/promptforge/core/logging.py)
+- [apps/macos/PromptForge/PromptForge/Item.swift](../apps/macos/PromptForge/PromptForge/Item.swift)
+- [apps/macos/PromptForge/scripts/bundle_engine.sh](../apps/macos/PromptForge/scripts/bundle_engine.sh)
