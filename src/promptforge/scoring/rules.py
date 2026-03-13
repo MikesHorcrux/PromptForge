@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from promptforge.core.models import DatasetCase, HardFailRules, PromptPack, RuleCheckResult
+from promptforge.core.models import DatasetCase, HardFailRules, LoadedPrompt, RuleCheckResult
 
 
 def _lower_list(values: list[str]) -> list[str]:
@@ -14,17 +14,17 @@ def evaluate_rule_checks(
     *,
     output_text: str,
     case: DatasetCase,
-    prompt_pack: PromptPack,
+    prompt: LoadedPrompt,
     hard_fail_rules: HardFailRules,
 ) -> RuleCheckResult:
     expectations = case.format_expectations
-    required_sections = list(dict.fromkeys(prompt_pack.manifest.required_sections + expectations.required_sections))
+    required_sections = list(dict.fromkeys(prompt.manifest.required_sections + expectations.required_sections))
     output_lower = output_text.lower()
     missing_sections = [section for section in required_sections if section.lower() not in output_lower]
     missing_strings = [value for value in expectations.required_strings if value.lower() not in output_lower]
     forbidden_strings_found = [value for value in expectations.forbidden_strings if value.lower() in output_lower]
 
-    output_format = expectations.output_format or prompt_pack.manifest.output_format
+    output_format = expectations.output_format or prompt.manifest.output_format
     json_required = output_format == "json" or bool(expectations.required_json_fields)
     invalid_json = False
     missing_json_fields: list[str] = []

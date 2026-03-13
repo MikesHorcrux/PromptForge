@@ -19,7 +19,7 @@ from promptforge.core.models import (
     DatasetCase,
     Lockfile,
     ModelExecutionResult,
-    PromptPack,
+    LoadedPrompt,
     RunManifest,
     RunRequest,
     ScoresArtifact,
@@ -27,7 +27,7 @@ from promptforge.core.models import (
     utc_now_iso,
 )
 from promptforge.datasets.loader import load_dataset
-from promptforge.prompts.loader import load_prompt_pack, render_user_prompt, validate_case_inputs
+from promptforge.prompts.loader import load_prompt, render_user_prompt, validate_case_inputs
 from promptforge.runtime.artifacts import ArtifactStore
 from promptforge.runtime.cache import ResponseCache
 from promptforge.runtime.compare_service import CompareService
@@ -51,15 +51,15 @@ class EvaluationService:
         self.compare_service = CompareService()
 
     async def run(self, request: RunRequest) -> RunManifest:
-        prompt_pack = load_prompt_pack(request.prompt_version)
+        prompt = load_prompt(request.prompt_version)
         dataset = load_dataset(request.dataset_path)
         for case in dataset.cases:
-            validate_case_inputs(prompt_pack, case)
+            validate_case_inputs(prompt, case)
 
         config_hash = sha256_model(
             {
-                "prompt_version": prompt_pack.manifest.version,
-                "prompt_pack_hash": prompt_pack.content_hash,
+                "prompt_version": prompt.manifest.version,
+                "prompt_hash": prompt.content_hash,
                 "dataset_hash": dataset.content_hash,
                 "model": request.model,
                 "provider": request.provider,
@@ -76,7 +76,7 @@ class EvaluationService:
             created_at=utc_now_iso(),
             provider=request.provider,
             judge_provider=request.judge_provider or request.provider,
-            prompt_version=prompt_pack.manifest.version,
+            prompt_version=prompt.manifest.version,
             model=request.model,
             dataset_path=str(dataset.path),
             config_hash=config_hash,
@@ -88,11 +88,11 @@ class EvaluationService:
             created_at=manifest.created_at,
             provider=request.provider,
             judge_provider=request.judge_provider or request.provider,
-            prompt_version=prompt_pack.manifest.version,
+            prompt_version=prompt.manifest.version,
             model=request.model,
             dataset_path=str(dataset.path),
             dataset_hash=dataset.content_hash,
-            prompt_pack_hash=prompt_pack.content_hash,
+            prompt_hash=prompt.content_hash,
             config_hash=config_hash,
             run_config=request.run_config.model_dump(mode="json"),
             scoring_config=request.scoring_config.model_dump(mode="json"),
@@ -106,14 +106,14 @@ class EvaluationService:
             self.logger,
             "run_started",
             run_id=run_id,
-            prompt_version=prompt_pack.manifest.version,
+            prompt_version=prompt.manifest.version,
             model=request.model,
             dataset_path=str(dataset.path),
             config_hash=config_hash,
         )
         outputs, rendered_prompts = await self._execute_cases(
             run_id=run_id,
-            prompt_pack=prompt_pack,
+            prompt=prompt,
             cases=dataset.cases,
             model=request.model,
             config_hash=config_hash,
@@ -122,7 +122,7 @@ class EvaluationService:
         warnings.extend([warning for result in outputs for warning in result.warnings])
         scores = await self._score_outputs(
             run_id=run_id,
-            prompt_pack=prompt_pack,
+            prompt=prompt,
             cases=dataset.cases,
             outputs=outputs,
             rendered_prompts=rendered_prompts,
@@ -134,7 +134,7 @@ class EvaluationService:
 
         comparison_placeholder = {
             "mode": "single",
-            "prompt_version": prompt_pack.manifest.version,
+            "prompt_version": prompt.manifest.version,
             "message": "No comparison requested for this run.",
         }
         report = render_evaluation_report(manifest=manifest, scores=scores)
@@ -247,8 +247,8 @@ class EvaluationService:
             model=model,
             dataset_path=dataset_path,
             dataset_hash=scores_a.dataset_hash,
-            prompt_pack_hash_a=scores_a.prompt_pack_hash,
-            prompt_pack_hash_b=scores_b.prompt_pack_hash,
+            prompt_hash_a=scores_a.prompt_hash,
+            prompt_hash_b=scores_b.prompt_hash,
             config_hash=compare_config_hash,
             run_config=run_config.model_dump(mode="json"),
             scoring_config=scoring_config.model_dump(mode="json"),
@@ -267,7 +267,7 @@ class EvaluationService:
         self,
         *,
         run_id: str,
-        prompt_pack: PromptPack,
+        prompt: LoadedPrompt,
         cases: list[DatasetCase],
         model: str,
         config_hash: str,
@@ -284,17 +284,17 @@ class EvaluationService:
                 if stop_event.is_set():
                     return ModelExecutionResult(
                         case_id=case.id,
-                        prompt_version=prompt_pack.manifest.version,
+                        prompt_version=prompt.manifest.version,
                         model=model,
                         provider=run_request.provider,
                         error="skipped after failure threshold was exceeded",
                     )
 
-                rendered_prompt = render_user_prompt(prompt_pack, case)
+                rendered_prompt = render_user_prompt(prompt, case)
                 rendered_prompts[case.id] = rendered_prompt
                 cache_key = sha256_model(
                     {
-                        "prompt_version": prompt_pack.manifest.version,
+                        "prompt_version": prompt.manifest.version,
                         "case_id": case.id,
                         "model": model,
                         "config_hash": config_hash,
@@ -304,7 +304,7 @@ class EvaluationService:
                 if cached:
                     result = ModelExecutionResult(
                         case_id=case.id,
-                        prompt_version=prompt_pack.manifest.version,
+                        prompt_version=prompt.manifest.version,
                         model=model,
                         provider=run_request.provider,
                         output_text=cached.output_text,
@@ -316,10 +316,10 @@ class EvaluationService:
                 else:
                     try:
                         result = await self.gateway.generate(
-                            prompt_version=prompt_pack.manifest.version,
+                            prompt_version=prompt.manifest.version,
                             case_id=case.id,
                             model=model,
-                            system_prompt=prompt_pack.system_prompt,
+                            system_prompt=prompt.system_prompt,
                             user_prompt=rendered_prompt,
                             run_id=run_id,
                             config_hash=config_hash,
@@ -329,7 +329,7 @@ class EvaluationService:
                             self.cache.set(
                                 CachedResponse(
                                     key=cache_key,
-                                    prompt_version=prompt_pack.manifest.version,
+                                    prompt_version=prompt.manifest.version,
                                     case_id=case.id,
                                     model=model,
                                     config_hash=config_hash,
@@ -342,7 +342,7 @@ class EvaluationService:
                     except Exception as exc:
                         result = ModelExecutionResult(
                             case_id=case.id,
-                            prompt_version=prompt_pack.manifest.version,
+                            prompt_version=prompt.manifest.version,
                             model=model,
                             provider=run_request.provider,
                             error=str(exc),
@@ -372,7 +372,7 @@ class EvaluationService:
         self,
         *,
         run_id: str,
-        prompt_pack: PromptPack,
+        prompt: LoadedPrompt,
         cases: list[DatasetCase],
         outputs: list[ModelExecutionResult],
         rendered_prompts: dict[str, str],
@@ -401,7 +401,7 @@ class EvaluationService:
                         rule_checks=evaluate_rule_checks(
                             output_text="",
                             case=case,
-                            prompt_pack=prompt_pack,
+                            prompt=prompt,
                             hard_fail_rules=run_request.scoring_config.hard_fail_rules,
                         ),
                         trait_scores=trait_scores,
@@ -416,13 +416,13 @@ class EvaluationService:
             rule_checks = evaluate_rule_checks(
                 output_text=output.output_text,
                 case=case,
-                prompt_pack=prompt_pack,
+                prompt=prompt,
                 hard_fail_rules=run_request.scoring_config.hard_fail_rules,
             )
             hard_fail_reasons = derive_hard_fail_reasons(rule_checks, run_request.scoring_config.hard_fail_rules)
             try:
                 judge_output = await self.judge.score(
-                    prompt_pack=prompt_pack,
+                    prompt=prompt,
                     case=case,
                     rendered_prompt=rendered_prompts[case.id],
                     output_text=output.output_text,
@@ -479,11 +479,11 @@ class EvaluationService:
         return ScoresArtifact(
             run_id=run_id,
             created_at=utc_now_iso(),
-            prompt_version=prompt_pack.manifest.version,
+            prompt_version=prompt.manifest.version,
             model=run_request.model,
             config_hash=config_hash,
             dataset_hash=dataset_hash,
-            prompt_pack_hash=prompt_pack.content_hash,
+            prompt_hash=prompt.content_hash,
             aggregate=aggregate,
             cases=case_scores,
             warnings=sorted(set(warnings)),

@@ -1,12 +1,12 @@
 from promptforge.datasets.loader import load_dataset
-from promptforge.prompts.loader import load_prompt_pack, render_user_prompt
+from promptforge.prompts.loader import load_prompt, render_user_prompt
 
 
-def test_render_prompt_pack_validates_and_renders() -> None:
-    prompt_pack = load_prompt_pack("v1")
+def test_render_prompt_validates_and_renders() -> None:
+    prompt = load_prompt("v1")
     dataset = load_dataset("datasets/core.jsonl")
 
-    rendered = render_user_prompt(prompt_pack, dataset.cases[0])
+    rendered = render_user_prompt(prompt, dataset.cases[0])
 
     assert "Avery Chen" in rendered
     assert "Write a support reply for the case below." in rendered
@@ -16,7 +16,7 @@ def test_render_prompt_pack_validates_and_renders() -> None:
     assert "Refunds are available within 30 calendar days" in rendered
 
 
-def test_render_prompt_pack_exposes_nested_input_payload(tmp_path) -> None:
+def test_render_prompt_exposes_nested_input_payload(tmp_path) -> None:
     prompt_root = tmp_path / "prompts" / "draft"
     prompt_root.mkdir(parents=True, exist_ok=True)
     (prompt_root / "manifest.yaml").write_text(
@@ -33,10 +33,10 @@ def test_render_prompt_pack_exposes_nested_input_payload(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    prompt_pack = load_prompt_pack(prompt_root)
+    prompt = load_prompt(prompt_root)
     dataset = load_dataset("datasets/core.jsonl")
 
-    rendered = render_user_prompt(prompt_pack, dataset.cases[0])
+    rendered = render_user_prompt(prompt, dataset.cases[0])
 
     assert "customer_name" in rendered
     assert "Avery" in rendered

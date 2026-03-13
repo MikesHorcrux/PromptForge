@@ -14,7 +14,7 @@ from promptforge.core.config import settings
 from promptforge.core.models import RunConfig, ScoringConfig
 from promptforge.forge.workspace import ForgeWorkspaceService
 from promptforge.project import PromptForgeProject
-from promptforge.prompts.loader import load_prompt_pack
+from promptforge.prompts.loader import load_prompt
 from promptforge.runtime.codex_cli import (
     codex_begin_device_auth,
     codex_login_status,
@@ -226,7 +226,7 @@ class PromptForgeHelper:
             return {"created": str(destination), "prompt": name}
         if method == "prompts.import":
             destination = self.workspace.import_prompt(str(params["source_path"]))
-            prompt = load_prompt_pack(destination).manifest.version
+            prompt = load_prompt(destination).manifest.version
             self.workspace.set_active_prompt(prompt)
             return {"created": str(destination), "prompt": prompt}
         if method == "prompts.export":

@@ -21,7 +21,7 @@ from promptforge.forge.models import (
 from promptforge.forge.service import ForgeSession
 from promptforge.project import PromptForgeProject
 from promptforge.prompts.brief import PromptBlock, PromptBrief, ensure_prompt_brief, save_prompt_brief
-from promptforge.prompts.loader import load_prompt_pack
+from promptforge.prompts.loader import load_prompt
 from promptforge.runtime.gateway import build_gateway
 from promptforge.scenarios.models import ScenarioSuite
 from promptforge.scenarios.service import ScenarioSuiteService
@@ -111,16 +111,16 @@ class ForgeWorkspaceService:
             if not child.is_dir():
                 continue
             try:
-                prompt_pack = load_prompt_pack(child)
+                prompt = load_prompt(child)
             except Exception:
                 continue
             prompts.append(
                 PromptSummary(
-                    version=prompt_pack.manifest.version,
-                    name=prompt_pack.manifest.name,
-                    description=prompt_pack.manifest.description,
-                    root=str(prompt_pack.root),
-                    session_id=self.state.prompt_sessions.get(prompt_pack.manifest.version),
+                    version=prompt.manifest.version,
+                    name=prompt.manifest.name,
+                    description=prompt.manifest.description,
+                    root=str(prompt.root),
+                    session_id=self.state.prompt_sessions.get(prompt.manifest.version),
                 )
             )
         return prompts
@@ -137,7 +137,7 @@ class ForgeWorkspaceService:
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         if from_prompt:
-            source = load_prompt_pack(from_prompt).root
+            source = load_prompt(from_prompt).root
             shutil.copytree(source, destination)
             manifest_path = destination / "manifest.yaml"
             manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -195,7 +195,7 @@ class ForgeWorkspaceService:
         return " ".join(part.capitalize() for part in parts)
 
     def import_prompt(self, source_path: str | Path) -> Path:
-        source_pack = load_prompt_pack(Path(source_path).expanduser())
+        source_pack = load_prompt(Path(source_path).expanduser())
         destination = settings.prompt_dir / source_pack.manifest.version
         if destination.exists():
             raise FileExistsError(f"Prompt already exists: {source_pack.manifest.version}")
@@ -210,15 +210,15 @@ class ForgeWorkspaceService:
             try:
                 manifest = ForgeSession.load_manifest(session_id)
                 if self._session_matches_config(manifest):
-                    prompt_pack = load_prompt_pack(manifest.working_prompt_dir)
-                    brief = ensure_prompt_brief(prompt_pack.root, description=prompt_pack.manifest.description)
+                    prompt = load_prompt(manifest.working_prompt_dir)
+                    brief = ensure_prompt_brief(prompt.root, description=prompt.manifest.description)
                     return PromptView(
                         version=prompt_ref,
-                        name=prompt_pack.manifest.name,
-                        description=prompt_pack.manifest.description,
-                        root=str(prompt_pack.root),
-                        system_prompt=prompt_pack.system_prompt,
-                        user_template=prompt_pack.user_template,
+                        name=prompt.manifest.name,
+                        description=prompt.manifest.description,
+                        root=str(prompt.root),
+                        system_prompt=prompt.system_prompt,
+                        user_template=prompt.user_template,
                         purpose=brief.purpose,
                         expected_behavior=brief.expected_behavior,
                         success_criteria=brief.success_criteria,
@@ -231,22 +231,22 @@ class ForgeWorkspaceService:
                         builder_permission_mode=brief.builder_permission_mode,
                         research_policy=brief.research_policy,
                         prompt_blocks=brief.prompt_blocks,
-                        files=self._prompt_files(prompt_pack.root),
+                        files=self._prompt_files(prompt.root),
                         session_id=session_id,
                     )
             except Exception:
                 self.state.prompt_sessions.pop(prompt_ref, None)
                 self._persist_state()
 
-        prompt_pack = load_prompt_pack(prompt_ref)
-        brief = ensure_prompt_brief(prompt_pack.root, description=prompt_pack.manifest.description)
+        prompt = load_prompt(prompt_ref)
+        brief = ensure_prompt_brief(prompt.root, description=prompt.manifest.description)
         return PromptView(
-            version=prompt_pack.manifest.version,
-            name=prompt_pack.manifest.name,
-            description=prompt_pack.manifest.description,
-            root=str(prompt_pack.root),
-            system_prompt=prompt_pack.system_prompt,
-            user_template=prompt_pack.user_template,
+            version=prompt.manifest.version,
+            name=prompt.manifest.name,
+            description=prompt.manifest.description,
+            root=str(prompt.root),
+            system_prompt=prompt.system_prompt,
+            user_template=prompt.user_template,
             purpose=brief.purpose,
             expected_behavior=brief.expected_behavior,
             success_criteria=brief.success_criteria,
@@ -259,7 +259,7 @@ class ForgeWorkspaceService:
             builder_permission_mode=brief.builder_permission_mode,
             research_policy=brief.research_policy,
             prompt_blocks=brief.prompt_blocks,
-            files=self._prompt_files(prompt_pack.root),
+            files=self._prompt_files(prompt.root),
             session_id=None,
         )
 
@@ -284,8 +284,8 @@ class ForgeWorkspaceService:
                 self.state.prompt_sessions.pop(prompt_ref, None)
                 self._persist_state()
 
-        prompt_pack = load_prompt_pack(prompt_ref)
-        ensure_prompt_brief(prompt_pack.root, description=prompt_pack.manifest.description)
+        prompt = load_prompt(prompt_ref)
+        ensure_prompt_brief(prompt.root, description=prompt.manifest.description)
         gateway = build_gateway(provider=self.provider, judge_provider=self.judge_provider)
         session = await ForgeSession.create(
             prompt_ref=prompt_ref,

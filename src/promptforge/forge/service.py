@@ -48,7 +48,7 @@ from promptforge.forge.models import (
     RevisionSource,
 )
 from promptforge.prompts.brief import ensure_prompt_brief
-from promptforge.prompts.loader import load_prompt_pack, render_user_prompt
+from promptforge.prompts.loader import load_prompt, render_user_prompt
 from promptforge.runtime.artifacts import ArtifactStore
 from promptforge.runtime.gateway import ModelGateway
 from promptforge.runtime.run_service import EvaluationService, generate_run_id
@@ -196,7 +196,7 @@ class ForgeSession:
         full_repeats: int,
         gateway: ModelGateway,
     ) -> "ForgeSession":
-        prompt_pack = load_prompt_pack(prompt_ref)
+        prompt = load_prompt(prompt_ref)
         benchmark_dataset = load_dataset(bench_dataset_path or dataset_path)
         full_dataset = load_dataset(dataset_path)
 
@@ -208,8 +208,8 @@ class ForgeSession:
         revisions_dir = session_dir / "revisions"
         revisions_dir.mkdir(parents=True, exist_ok=True)
 
-        shutil.copytree(prompt_pack.root, baseline_dir)
-        shutil.copytree(prompt_pack.root, working_dir)
+        shutil.copytree(prompt.root, baseline_dir)
+        shutil.copytree(prompt.root, working_dir)
 
         manifest = ForgeSessionManifest(
             session_id=session_id,
@@ -234,7 +234,7 @@ class ForgeSession:
         baseline_revision = await session._create_revision_from_prompt_dir(
             prompt_dir=baseline_dir,
             source="baseline",
-            note=f"Imported baseline prompt `{prompt_pack.manifest.version}`.",
+            note=f"Imported baseline prompt `{prompt.manifest.version}`.",
             changed_files=[],
             run_benchmark=False,
         )
@@ -320,7 +320,7 @@ class ForgeSession:
     async def prepare_agent_request(self, request: str) -> PreparedAgentEdit:
         before = self._read_prompt_file_map(self.working_prompt_dir)
         proposal_id = self._next_proposal_id()
-        proposal_dir = self.proposals_dir / proposal_id / "prompt_pack"
+        proposal_dir = self.proposals_dir / proposal_id / "prompt"
         proposal_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(self.working_prompt_dir, proposal_dir)
 
@@ -378,7 +378,7 @@ class ForgeSession:
         backup_dir = self._replace_prompt_dir_atomically(
             target_dir=self.working_prompt_dir,
             source_dir=staged_dir,
-            validate_prompt_pack=True,
+            validate_prompt=True,
         )
         try:
             revision = await self._create_revision_from_prompt_dir(
@@ -527,7 +527,7 @@ class ForgeSession:
         backup_dir = self._replace_prompt_dir_atomically(
             target_dir=self.working_prompt_dir,
             source_dir=baseline_dir,
-            validate_prompt_pack=True,
+            validate_prompt=True,
         )
         try:
             revision = await self._create_revision_from_prompt_dir(
@@ -555,7 +555,7 @@ class ForgeSession:
         backup_dir = self._replace_prompt_dir_atomically(
             target_dir=self.working_prompt_dir,
             source_dir=Path(revision.prompt_snapshot_dir),
-            validate_prompt_pack=True,
+            validate_prompt=True,
         )
         try:
             restored = await self._create_revision_from_prompt_dir(
@@ -580,8 +580,8 @@ class ForgeSession:
 
     async def run_full_evaluation(self, *, note: str | None = None) -> ForgeRevision:
         latest = self.latest_revision
-        current_hash = load_prompt_pack(self.working_prompt_dir).content_hash
-        if latest is None or latest.prompt_pack_hash != current_hash:
+        current_hash = load_prompt(self.working_prompt_dir).content_hash
+        if latest is None or latest.prompt_hash != current_hash:
             latest = await self.run_manual_benchmark(
                 note=note or "Auto-benchmarked current prompt before the full evaluation."
             )
@@ -748,7 +748,7 @@ class ForgeSession:
         backup_dir = self._replace_prompt_dir_atomically(
             target_dir=baseline_dir,
             source_dir=source_dir,
-            validate_prompt_pack=True,
+            validate_prompt=True,
         )
         try:
             baseline_revision = await self._create_revision_from_prompt_dir(
@@ -1031,9 +1031,9 @@ class ForgeSession:
         changed_files: list[str],
         run_benchmark: bool = True,
     ) -> ForgeRevision:
-        prompt_pack = load_prompt_pack(prompt_dir)
+        prompt = load_prompt(prompt_dir)
         revision_id = self._next_revision_id()
-        snapshot_dir = self.revisions_dir / revision_id / "prompt_pack"
+        snapshot_dir = self.revisions_dir / revision_id / "prompt"
         snapshot_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(prompt_dir, snapshot_dir)
 
@@ -1043,7 +1043,7 @@ class ForgeSession:
             source=source,
             note=note,
             changed_files=changed_files,
-            prompt_pack_hash=prompt_pack.content_hash,
+            prompt_hash=prompt.content_hash,
             prompt_snapshot_dir=str(snapshot_dir),
         )
         if run_benchmark:
@@ -1079,7 +1079,7 @@ class ForgeSession:
                 session_id=self.manifest.session_id,
                 revision_id=revision.revision_id,
                 source=source,
-                prompt_pack_hash=revision.prompt_pack_hash,
+                prompt_hash=revision.prompt_hash,
                 run_ids=revision.benchmark.run_ids if revision.benchmark else [],
                 mean_effective_score=revision.benchmark.mean_effective_score if revision.benchmark else None,
             )
@@ -1090,7 +1090,7 @@ class ForgeSession:
                 session_id=self.manifest.session_id,
                 revision_id=revision.revision_id,
                 source=source,
-                prompt_pack_hash=revision.prompt_pack_hash,
+                prompt_hash=revision.prompt_hash,
                 note=note,
             )
         return revision
@@ -1376,15 +1376,15 @@ class ForgeSession:
         samples: int,
         prefix: str,
     ) -> list[PlaygroundSample]:
-        prompt_pack = load_prompt_pack(prompt_dir)
-        user_prompt = render_user_prompt(prompt_pack, case)
+        prompt = load_prompt(prompt_dir)
+        user_prompt = render_user_prompt(prompt, case)
         outputs: list[PlaygroundSample] = []
         for index in range(samples):
             result = await self.gateway.generate(
                 prompt_version=str(prompt_dir),
                 case_id=f"{prefix}-{index}",
                 model=self.manifest.model,
-                system_prompt=prompt_pack.system_prompt,
+                system_prompt=prompt.system_prompt,
                 user_prompt=user_prompt,
                 run_id=self.manifest.session_id,
                 config_hash=f"{self.manifest.session_id}-{prefix}-playground",
@@ -1731,21 +1731,21 @@ class ForgeSession:
 
     def _validate_prompt_dir(self, prompt_dir: Path) -> None:
         ensure_prompt_brief(prompt_dir)
-        load_prompt_pack(prompt_dir)
+        load_prompt(prompt_dir)
 
     def _replace_prompt_dir_atomically(
         self,
         *,
         target_dir: Path,
         source_dir: Path,
-        validate_prompt_pack: bool,
+        validate_prompt: bool,
     ) -> Path | None:
         staging_dir = target_dir.parent / f".{target_dir.name}.staging-{uuid.uuid4().hex}"
         if staging_dir.exists():
             shutil.rmtree(staging_dir)
         shutil.copytree(source_dir, staging_dir, symlinks=True)
         try:
-            if validate_prompt_pack:
+            if validate_prompt:
                 self._validate_prompt_dir(staging_dir)
             self._sync_tree(staging_dir)
             self._fsync_path(staging_dir.parent)

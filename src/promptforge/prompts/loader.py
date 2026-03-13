@@ -10,13 +10,13 @@ from jsonschema import Draft202012Validator
 
 from promptforge.core.config import settings
 from promptforge.core.hashing import sha256_model
-from promptforge.core.models import DatasetCase, PromptPack, PromptPackManifest
+from promptforge.core.models import DatasetCase, LoadedPrompt, PromptManifest
 
 
 PROMPT_FILES = ("manifest.yaml", "system.md", "user_template.md", "variables.schema.json")
 
 
-def resolve_prompt_pack_path(prompt_version: str | Path) -> Path:
+def resolve_prompt_path(prompt_version: str | Path) -> Path:
     path = Path(prompt_version)
     if path.exists():
         return path
@@ -26,13 +26,13 @@ def resolve_prompt_pack_path(prompt_version: str | Path) -> Path:
     raise FileNotFoundError(f"Prompt not found: {prompt_version}")
 
 
-def load_prompt_pack(prompt_version: str | Path) -> PromptPack:
-    root = resolve_prompt_pack_path(prompt_version)
+def load_prompt(prompt_version: str | Path) -> LoadedPrompt:
+    root = resolve_prompt_path(prompt_version)
     missing = [name for name in PROMPT_FILES if not (root / name).exists()]
     if missing:
         raise FileNotFoundError(f"Prompt {root} is missing files: {', '.join(missing)}")
 
-    manifest = PromptPackManifest.model_validate(
+    manifest = PromptManifest.model_validate(
         yaml.safe_load((root / "manifest.yaml").read_text(encoding="utf-8"))
     )
     system_prompt = (root / "system.md").read_text(encoding="utf-8").strip()
@@ -46,7 +46,7 @@ def load_prompt_pack(prompt_version: str | Path) -> PromptPack:
             "schema": variables_schema,
         }
     )
-    return PromptPack(
+    return LoadedPrompt(
         root=root,
         manifest=manifest,
         system_prompt=system_prompt,
@@ -56,14 +56,14 @@ def load_prompt_pack(prompt_version: str | Path) -> PromptPack:
     )
 
 
-def validate_case_inputs(prompt_pack: PromptPack, case: DatasetCase) -> None:
-    Draft202012Validator(prompt_pack.variables_schema).validate(case.input)
+def validate_case_inputs(prompt: LoadedPrompt, case: DatasetCase) -> None:
+    Draft202012Validator(prompt.variables_schema).validate(case.input)
 
 
-def render_user_prompt(prompt_pack: PromptPack, case: DatasetCase) -> str:
-    validate_case_inputs(prompt_pack, case)
+def render_user_prompt(prompt: LoadedPrompt, case: DatasetCase) -> str:
+    validate_case_inputs(prompt, case)
     env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
-    template = env.from_string(prompt_pack.user_template)
+    template = env.from_string(prompt.user_template)
     payload: dict[str, Any] = dict(case.input)
     payload["input"] = case.input
     payload["context"] = case.context

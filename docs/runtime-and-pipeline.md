@@ -27,7 +27,7 @@ sequenceDiagram
 
   Operator->>CLI: pf run --prompt v1 --dataset datasets/core.jsonl
   CLI->>Service: RunRequest
-  Service->>Prompts: load_prompt_pack()
+  Service->>Prompts: load_prompt()
   Service->>Data: load_dataset()
   Service->>Prompts: validate_case_inputs() for each case
   Service->>Store: write run.json + run.lock.json
@@ -137,7 +137,7 @@ stateDiagram-v2
 | Stage | Primary code | Inputs | Outputs | Checkpoints | Typical failures |
 |---|---|---|---|---|---|
 | CLI parse | `src/promptforge/cli.py` | argv, env defaults | command action or `RunRequest` | none | invalid args |
-| Prompt load | `src/promptforge/prompts/loader.py` | prompt ref or path | `PromptPack` | none | missing files, invalid YAML/JSON |
+| Prompt load | `src/promptforge/prompts/loader.py` | prompt ref or path | `LoadedPrompt` | none | missing files, invalid YAML/JSON |
 | Dataset load | `src/promptforge/datasets/loader.py` | dataset path | `LoadedDataset` | none | missing file, empty dataset, bad JSONL |
 | Input validation | `validate_case_inputs()` | prompt schema, `case.input` | validated cases | none | schema mismatch |
 | Run init | `EvaluationService.run()` | prompt, dataset, config | `run.json`, `run.lock.json` | durable run ID + lockfile | filesystem errors |
@@ -165,7 +165,7 @@ Also reads or creates:
 
 Returns:
 
-- one `PromptPack`
+- one `LoadedPrompt`
 - one `PromptBrief`
 - one content hash used in cache and lockfile identities
 

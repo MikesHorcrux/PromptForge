@@ -3,21 +3,21 @@ from __future__ import annotations
 import json
 
 from promptforge.agents.prompt_judge.schemas import RubricJudgeOutput
-from promptforge.core.models import DatasetCase, PromptPack, ScoringConfig
+from promptforge.core.models import DatasetCase, LoadedPrompt, ScoringConfig
 from promptforge.runtime.gateway import ModelGateway
 
 
 def build_judge_payload(
     *,
-    prompt_pack: PromptPack,
+    prompt: LoadedPrompt,
     case: DatasetCase,
     rendered_prompt: str,
     output_text: str,
 ) -> str:
     payload = {
-        "prompt_version": prompt_pack.manifest.version,
-        "prompt_name": prompt_pack.manifest.name,
-        "system_prompt": prompt_pack.system_prompt,
+        "prompt_version": prompt.manifest.version,
+        "prompt_name": prompt.manifest.name,
+        "system_prompt": prompt.system_prompt,
         "rendered_user_prompt": rendered_prompt,
         "case": case.model_dump(mode="json"),
         "model_output": output_text,
@@ -32,7 +32,7 @@ class RubricJudge:
     async def score(
         self,
         *,
-        prompt_pack: PromptPack,
+        prompt: LoadedPrompt,
         case: DatasetCase,
         rendered_prompt: str,
         output_text: str,
@@ -40,7 +40,7 @@ class RubricJudge:
         timeout_seconds: float,
     ) -> RubricJudgeOutput:
         payload = build_judge_payload(
-            prompt_pack=prompt_pack,
+            prompt=prompt,
             case=case,
             rendered_prompt=rendered_prompt,
             output_text=output_text,

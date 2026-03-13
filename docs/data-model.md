@@ -17,9 +17,9 @@ edges that matter in production use.
 | Entity | Source | Persisted as | Purpose |
 |---|---|---|---|
 | `ProjectMetadata` | `src/promptforge/project.py` | `.promptforge/project.json` | Project defaults, provider/model choices, dataset defaults, last opened prompt |
-| `PromptPackManifest` | `src/promptforge/core/models.py` | `prompts/<version>/manifest.yaml` | Prompt version, display name, description, output format, required sections |
+| `PromptManifest` | `src/promptforge/core/models.py` | `prompts/<version>/manifest.yaml` | Prompt version, display name, description, output format, required sections |
 | `PromptBrief` | `src/promptforge/prompts/brief.py` | `prompts/<version>/prompt.json` | Prompt authoring metadata used by the app and forge workspace |
-| `PromptPack` | `src/promptforge/core/models.py` | loaded from prompt-pack files | Fully loaded prompt, schema, and content hash |
+| `LoadedPrompt` | `src/promptforge/core/models.py` | loaded from prompt-pack files | Fully loaded prompt, schema, and content hash |
 | `DatasetCase` | `src/promptforge/core/models.py` | one JSONL line | Runtime evaluation case with `input`, optional `context`, rubric targets, and expectations |
 | `ScenarioSuite` | `src/promptforge/scenarios/models.py` | `scenarios/<suite_id>.json` | Saved case set used for review-style testing |
 | `WorkspaceState` | `src/promptforge/forge/workspace.py` | `var/state/forge_workspace.json` | Active prompt and prompt-to-session mapping |

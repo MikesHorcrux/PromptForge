@@ -93,7 +93,7 @@ def make_scores(run_id: str, prompt_version: str, *, hard_fail: bool, effective_
         model="gpt-test",
         config_hash=f"cfg-{prompt_version}",
         dataset_hash="dataset",
-        prompt_pack_hash=f"pack-{prompt_version}",
+        prompt_hash=f"pack-{prompt_version}",
         aggregate=aggregate,
         cases=[case_score],
     )

@@ -73,7 +73,7 @@ class ForgeRevision(BaseModel):
     source: RevisionSource
     note: str = ""
     changed_files: list[str] = Field(default_factory=list)
-    prompt_pack_hash: str
+    prompt_hash: str
     prompt_snapshot_dir: str
     benchmark: BenchmarkSnapshot | None = None
     full_evaluation: BenchmarkSnapshot | None = None

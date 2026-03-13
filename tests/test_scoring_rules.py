@@ -1,10 +1,10 @@
 from promptforge.core.models import DatasetCase, FormatExpectations
-from promptforge.prompts.loader import load_prompt_pack
+from promptforge.prompts.loader import load_prompt
 from promptforge.scoring.rules import derive_hard_fail_reasons, evaluate_rule_checks
 
 
 def test_rule_scoring_flags_missing_sections() -> None:
-    prompt_pack = load_prompt_pack("v1")
+    prompt = load_prompt("v1")
     case = DatasetCase(
         id="case-x",
         input={
@@ -23,7 +23,7 @@ def test_rule_scoring_flags_missing_sections() -> None:
     checks = evaluate_rule_checks(
         output_text="## Summary\nAll good.\n## Answer\nHere is the answer.",
         case=case,
-        prompt_pack=prompt_pack,
+        prompt=prompt,
         hard_fail_rules=promptforge_default_rules(),
     )
     reasons = derive_hard_fail_reasons(checks, promptforge_default_rules())
@@ -33,7 +33,7 @@ def test_rule_scoring_flags_missing_sections() -> None:
 
 
 def test_rule_scoring_flags_invalid_json() -> None:
-    prompt_pack = load_prompt_pack("v1")
+    prompt = load_prompt("v1")
     case = DatasetCase(
         id="case-json",
         input={
@@ -52,7 +52,7 @@ def test_rule_scoring_flags_invalid_json() -> None:
     checks = evaluate_rule_checks(
         output_text="not-json",
         case=case,
-        prompt_pack=prompt_pack,
+        prompt=prompt,
         hard_fail_rules=promptforge_default_rules(),
     )
     reasons = derive_hard_fail_reasons(checks, promptforge_default_rules())

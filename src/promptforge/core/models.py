@@ -29,7 +29,7 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-class PromptPackManifest(BaseModel):
+class PromptManifest(BaseModel):
     api_version: int = Field(default=1, alias="apiVersion")
     version: str
     name: str
@@ -39,9 +39,9 @@ class PromptPackManifest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PromptPack(BaseModel):
+class LoadedPrompt(BaseModel):
     root: Path
-    manifest: PromptPackManifest
+    manifest: PromptManifest
     system_prompt: str
     user_template: str
     variables_schema: dict[str, Any]
@@ -202,7 +202,7 @@ class ScoresArtifact(BaseModel):
     model: str
     config_hash: str
     dataset_hash: str
-    prompt_pack_hash: str
+    prompt_hash: str
     aggregate: AggregateScores
     cases: list[CaseScore]
     warnings: list[str] = Field(default_factory=list)
@@ -304,9 +304,9 @@ class Lockfile(BaseModel):
     model: str
     dataset_path: str
     dataset_hash: str
-    prompt_pack_hash: str | None = None
-    prompt_pack_hash_a: str | None = None
-    prompt_pack_hash_b: str | None = None
+    prompt_hash: str | None = None
+    prompt_hash_a: str | None = None
+    prompt_hash_b: str | None = None
     config_hash: str
     run_config: dict[str, Any]
     scoring_config: dict[str, Any]

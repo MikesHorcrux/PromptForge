@@ -16,7 +16,7 @@ from promptforge.core.models import ProviderName, RunConfig, RunRequest, Scoring
 from promptforge.datasets.loader import load_dataset
 from promptforge.forge.workspace import ForgeWorkspaceService, WorkspaceState
 from promptforge.project import PromptForgeProject
-from promptforge.prompts.loader import load_prompt_pack
+from promptforge.prompts.loader import load_prompt
 from promptforge.runtime.artifacts import ArtifactStore
 from promptforge.runtime.codex_cli import codex_login_status
 from promptforge.runtime.gateway import build_gateway
@@ -237,10 +237,10 @@ async def _doctor_command(args: argparse.Namespace) -> int:
         checks.append((f"{judge_provider}_judge_auth", judge_auth_ok, judge_auth_detail))
 
     try:
-        prompt_pack = load_prompt_pack(args.prompt)
-        checks.append(("prompt_pack", True, str(prompt_pack.root)))
+        prompt = load_prompt(args.prompt)
+        checks.append(("prompt", True, str(prompt.root)))
     except Exception as exc:
-        checks.append(("prompt_pack", False, str(exc)))
+        checks.append(("prompt", False, str(exc)))
 
     try:
         dataset = load_dataset(args.dataset)
