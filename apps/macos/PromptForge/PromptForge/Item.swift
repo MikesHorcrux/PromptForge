@@ -327,26 +327,29 @@ final class PromptForgeAppModel: ObservableObject {
             return
         }
         SecurityScopedProjectStore.save(url: url)
-        guard let resolvedEngineRuntime = resolveEngineRoot(projectURL: url, explicitEngineRoot: engineRoot) else {
-            launchError = EngineRuntimeLocator.missingRuntimeMessage
-            appendTranscript(.warning, "Launch error", EngineRuntimeLocator.missingRuntimeMessage)
-            isBusy = false
-            busyLabel = ""
-            return
-        }
+        let resolvedEngineRuntime = resolveEngineRoot(projectURL: url, explicitEngineRoot: engineRoot)
         do {
             helper = try PromptForgeTransportFactory.makeTransport(
                 projectRoot: path,
                 runtimeSelection: resolvedEngineRuntime
             )
-            self.engineRoot = resolvedEngineRuntime.rootPath
+            self.engineRoot = resolvedEngineRuntime?.rootPath
             UserDefaults.standard.set(path, forKey: "PromptForgeProjectPath")
-            UserDefaults.standard.set(resolvedEngineRuntime.rootPath, forKey: "PromptForgeEngineRoot")
+            if let resolvedEngineRuntime {
+                UserDefaults.standard.set(resolvedEngineRuntime.rootPath, forKey: "PromptForgeEngineRoot")
+            }
             projectPath = path
             selectedWorkspaceMode = .studio
             transcript.removeAll()
             appendTranscript(.system, "Project", "Opened \(path)")
             appendTranscript(.system, "Runtime", "Using \(helper?.backend.displayName ?? "local helper").")
+            if resolvedEngineRuntime == nil {
+                appendTranscript(
+                    .warning,
+                    "Runtime",
+                    "Bundled engine not found. Project, settings, and prompt editing run natively; evals and agent actions still require the packaged engine."
+                )
+            }
             _ = try await helper?.send(method: "project.open") ?? [:]
             startEventStream()
             try await refreshStatus()

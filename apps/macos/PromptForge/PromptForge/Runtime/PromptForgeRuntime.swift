@@ -197,12 +197,18 @@ enum HelperClientError: Error, LocalizedError {
 
 enum PromptForgeRuntimeBackend: String, Equatable {
     case pythonSocket
+    case nativeSwift
+    case nativeHybrid
     case nativeXPC
 
     var displayName: String {
         switch self {
         case .pythonSocket:
             return "Python socket helper"
+        case .nativeSwift:
+            return "native Swift helper"
+        case .nativeHybrid:
+            return "native Swift helper + Python fallback"
         case .nativeXPC:
             return "native Swift helper"
         }
@@ -275,8 +281,8 @@ extension PromptForgeAgentTransport {
 enum PromptForgeTransportFactory {
     static func makeTransport(
         projectRoot: String,
-        runtimeSelection: EngineRuntimeSelection
+        runtimeSelection: EngineRuntimeSelection?
     ) throws -> any PromptForgeAgentTransport {
-        try PythonSocketAgentTransport(projectRoot: projectRoot, engineRoot: runtimeSelection.rootPath)
+        try HybridNativeAgentTransport(projectRoot: projectRoot, runtimeSelection: runtimeSelection)
     }
 }
