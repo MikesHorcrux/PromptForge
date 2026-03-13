@@ -57,7 +57,7 @@ python -m promptforge.scripts.smoke_eval
 
 | Test file | What it verifies |
 |---|---|
-| `tests/test_prompt_loader.py` | prompt-pack loading, schema validation, render contract |
+| `tests/test_prompt_loader.py` | prompt loading, schema validation, render contract |
 | `tests/test_scoring_rules.py` | deterministic rule checks and hard-fail behavior |
 | `tests/test_cache_and_compare.py` | SQLite cache persistence and comparison-winner logic |
 | `tests/test_run_service.py` | evaluation and comparison artifact generation |
@@ -84,7 +84,7 @@ flowchart LR
 
 ## Covered Well
 
-- prompt-pack contract loading
+- prompt contract loading
 - dataset render path
 - deterministic rule checks
 - cache round-trips
@@ -151,7 +151,7 @@ That means:
 
 These are important even though the code is functional:
 
-- release packaging still depends on the local engine tree and local `.venv`
+- release packaging now has a scripted path, but it still depends on a local Python build environment
 - the helper/runtime still rely on project cwd in several code paths
 - legacy `prompt_blocks` compatibility still exists in the prompt metadata contract even though the current UI is file-first
 

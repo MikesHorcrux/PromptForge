@@ -63,6 +63,14 @@ enum EngineRuntimeLocator {
     static let bundledDirectoryName = "engine"
     static let manifestFileName = "runtime-manifest.json"
 
+    static var allowsDevelopmentRuntimeFallback: Bool {
+#if DEBUG
+        true
+#else
+        false
+#endif
+    }
+
     static func bundledEngineRoot(resourceURL: URL?) -> String? {
         guard let resourceURL else {
             return nil
@@ -99,17 +107,21 @@ enum EngineRuntimeLocator {
                 return EngineRuntimeSelection(rootPath: standardizedCandidate, source: source, configuration: configuration)
             }
         }
-#if DEBUG
-        let projectCandidate = standardized(projectURL.path)
-        if seen.insert(projectCandidate).inserted, let configuration = configuration(for: projectCandidate) {
-            return EngineRuntimeSelection(rootPath: projectCandidate, source: .projectFallback, configuration: configuration)
+        if allowsDevelopmentRuntimeFallback {
+            let projectCandidate = standardized(projectURL.path)
+            if seen.insert(projectCandidate).inserted, let configuration = configuration(for: projectCandidate) {
+                return EngineRuntimeSelection(rootPath: projectCandidate, source: .projectFallback, configuration: configuration)
+            }
         }
-#endif
         return nil
     }
 
     static var missingRuntimeMessage: String {
+#if DEBUG
         "PromptForge could not find a usable bundled runtime. Rebuild the app so it includes the packaged engine, or pass a valid --engine-root in a local debug run."
+#else
+        "PromptForge could not find its bundled runtime. Reinstall the app or use an official PromptForge build."
+#endif
     }
 
     private static func standardized(_ path: String) -> String {

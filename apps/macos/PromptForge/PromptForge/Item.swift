@@ -328,6 +328,14 @@ final class PromptForgeAppModel: ObservableObject {
         }
         SecurityScopedProjectStore.save(url: url)
         let resolvedEngineRuntime = resolveEngineRoot(projectURL: url, explicitEngineRoot: engineRoot)
+        if resolvedEngineRuntime == nil && !EngineRuntimeLocator.allowsDevelopmentRuntimeFallback {
+            let detail = EngineRuntimeLocator.missingRuntimeMessage
+            launchError = detail
+            appendTranscript(.warning, "Runtime", detail)
+            isBusy = false
+            busyLabel = ""
+            return
+        }
         do {
             helper = try PromptForgeTransportFactory.makeTransport(
                 projectRoot: path,

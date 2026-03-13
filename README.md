@@ -29,7 +29,7 @@ The direction is straightforward:
 1. the macOS app is the main product surface
 2. the helper is the local boundary for agent and runtime work
 3. OpenAI API and Codex auth are the first provider paths
-4. the app moves toward a fully bundled native macOS release
+4. the app ships as a direct-download bundled macOS release before any App Store work
 
 ## Development Setup
 
@@ -72,6 +72,12 @@ Run tests:
 pytest -q
 ```
 
+Build a direct-download macOS release:
+
+```bash
+make app-release
+```
+
 ## Repository Layout
 
 ```text
@@ -90,7 +96,7 @@ var/                          Generated local artifacts and state
 
 ## Current State
 
-This is still closer to "engine plus app in progress" than a finished consumer download.
+This is now set up for a direct-download `0.0.1` style release, not an App Store release.
 
 What is already working:
 
@@ -98,12 +104,12 @@ What is already working:
 - local helper-backed workflows for prompt loading, saving, tests, and reviews
 - reproducible evaluation runs and comparison reports
 - OpenAI and Codex connectivity paths
+- a scripted macOS release build path in `packaging/macos/release_app.sh`
 
 What still needs hardening for release:
 
-- a fully bundled runtime contract
 - first-run onboarding polish
-- signing, notarization, and release automation
+- operator-side signing and notarization credentials
 - a smaller native helper surface as the Swift migration continues
 
 <p align="center">

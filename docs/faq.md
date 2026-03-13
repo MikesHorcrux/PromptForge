@@ -157,6 +157,8 @@ You can open the project, then create or import a prompt.
 
 The app could not find a valid packaged engine.
 
+For official release builds, reinstall the app or re-download the release zip.
+
 For source builds, rebuild the app after rebuilding the local engine runtime so
 the app bundle contains a usable:
 

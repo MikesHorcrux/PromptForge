@@ -12,3 +12,6 @@ doctor:
 
 app-build:
 	xcodebuild -project apps/macos/PromptForge/PromptForge.xcodeproj -scheme PromptForge -sdk macosx build CODE_SIGNING_ALLOWED=NO
+
+app-release:
+	/bin/sh ./packaging/macos/release_app.sh

@@ -2,17 +2,17 @@
 set -eu
 
 REPO_ROOT="${PROJECT_DIR}/../../.."
-ENGINE_SOURCE_ROOT="${REPO_ROOT}"
+ENGINE_SOURCE_ROOT="${PF_ENGINE_SOURCE_ROOT:-${REPO_ROOT}}"
 ENGINE_OUTPUT_DIR="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/engine"
 
 SRC_ROOT="${ENGINE_SOURCE_ROOT}/src"
 DATASET_ROOT="${ENGINE_SOURCE_ROOT}/datasets"
-VENV_ROOT="${ENGINE_SOURCE_ROOT}/.venv"
+VENV_ROOT="${PF_ENGINE_VENV_ROOT:-${ENGINE_SOURCE_ROOT}/.venv}"
 BIN_ROOT="${ENGINE_OUTPUT_DIR}/bin"
 MANIFEST_PATH="${ENGINE_OUTPUT_DIR}/runtime-manifest.json"
 
 if [ ! -d "${SRC_ROOT}" ] || [ ! -x "${VENV_ROOT}/bin/python" ]; then
-  echo "error: PromptForge bundled engine is missing src/ or .venv/. Rebuild the local engine runtime before building the app." >&2
+  echo "error: PromptForge bundled engine is missing src/ or a usable venv. Set PF_ENGINE_SOURCE_ROOT and PF_ENGINE_VENV_ROOT to a prepared release runtime before building the app." >&2
   exit 1
 fi
 

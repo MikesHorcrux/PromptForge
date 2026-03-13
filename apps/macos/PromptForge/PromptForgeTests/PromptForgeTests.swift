@@ -49,10 +49,14 @@ struct PromptForgeTests {
             bundleResourceURL: tempRoot.appendingPathComponent("Resources", isDirectory: true)
         )
 
+        #expect(selection == nil)
+    }
+
+    @Test func debugFallbackPolicyMatchesBuildConfiguration() async throws {
         #if DEBUG
-        #expect(selection == nil)
+        #expect(EngineRuntimeLocator.allowsDevelopmentRuntimeFallback == true)
         #else
-        #expect(selection == nil)
+        #expect(EngineRuntimeLocator.allowsDevelopmentRuntimeFallback == false)
         #endif
     }
 

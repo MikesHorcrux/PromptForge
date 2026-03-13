@@ -1,7 +1,13 @@
 import Foundation
 
 final class HybridNativeAgentTransport: PromptForgeAgentTransport {
-    static let fallbackRequiredMessage = "This action still requires the packaged engine. Rebuild the app with the bundled runtime, or pass a valid --engine-root for local debug runs."
+    static var fallbackRequiredMessage: String {
+#if DEBUG
+        "This action still requires the packaged engine. Rebuild the app with the bundled runtime, or pass a valid --engine-root for local debug runs."
+#else
+        "This action requires the bundled runtime. Reinstall PromptForge or use an official build."
+#endif
+    }
 
     let backend: PromptForgeRuntimeBackend
 
