@@ -313,7 +313,7 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
 
                 Button("Import Prompt") {
-                    model.importPromptPack()
+                    model.importPrompt()
                 }
                 .buttonStyle(.bordered)
             }

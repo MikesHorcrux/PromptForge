@@ -18,7 +18,7 @@ The repo already has all three main layers:
 - macOS app in `apps/macos/PromptForge/`
 - local helper and runtime in `src/promptforge/`
 - packaging support in `packaging/`
-- file-backed project state in `prompt_packs/`, `datasets/`, `scenarios/`, and `var/`
+- file-backed project state in `prompts/`, `datasets/`, `scenarios/`, and `var/`
 
 The confusing part is that the codebase still mixes older names with the product you actually want:
 

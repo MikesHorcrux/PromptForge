@@ -19,7 +19,7 @@ class Settings(BaseModel):
     openrouter_base_url: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     app_env: str = os.getenv("PF_APP_ENV", "local")
     log_level: str = os.getenv("PF_LOG_LEVEL", "INFO")
-    prompt_pack_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_PROMPT_PACK_DIR", "prompt_packs")))
+    prompt_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_PROMPT_DIR", "prompts")))
     dataset_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_DATASET_DIR", "datasets")))
     scenario_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_SCENARIO_DIR", "scenarios")))
     var_dir: Path = Field(default_factory=lambda: Path(os.getenv("PF_VAR_DIR", "var")))

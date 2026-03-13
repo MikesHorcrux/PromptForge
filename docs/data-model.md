@@ -17,8 +17,8 @@ edges that matter in production use.
 | Entity | Source | Persisted as | Purpose |
 |---|---|---|---|
 | `ProjectMetadata` | `src/promptforge/project.py` | `.promptforge/project.json` | Project defaults, provider/model choices, dataset defaults, last opened prompt |
-| `PromptPackManifest` | `src/promptforge/core/models.py` | `prompt_packs/<version>/manifest.yaml` | Prompt version, display name, description, output format, required sections |
-| `PromptBrief` | `src/promptforge/prompts/brief.py` | `prompt_packs/<version>/prompt.json` | Prompt authoring metadata used by the app and forge workspace |
+| `PromptPackManifest` | `src/promptforge/core/models.py` | `prompts/<version>/manifest.yaml` | Prompt version, display name, description, output format, required sections |
+| `PromptBrief` | `src/promptforge/prompts/brief.py` | `prompts/<version>/prompt.json` | Prompt authoring metadata used by the app and forge workspace |
 | `PromptPack` | `src/promptforge/core/models.py` | loaded from prompt-pack files | Fully loaded prompt, schema, and content hash |
 | `DatasetCase` | `src/promptforge/core/models.py` | one JSONL line | Runtime evaluation case with `input`, optional `context`, rubric targets, and expectations |
 | `ScenarioSuite` | `src/promptforge/scenarios/models.py` | `scenarios/<suite_id>.json` | Saved case set used for review-style testing |
@@ -37,7 +37,7 @@ edges that matter in production use.
 ```mermaid
 flowchart TB
   Root["PromptForge project root"] --> Project[".promptforge/project.json"]
-  Root --> Packs["prompt_packs/<version>/..."]
+  Root --> Packs["prompts/<version>/..."]
   Root --> Datasets["datasets/*.jsonl"]
   Root --> Scenarios["scenarios/*.json"]
   Root --> State["var/state/forge_workspace.json"]
@@ -123,7 +123,7 @@ Each line becomes a `DatasetCase` with:
 
 If `id` is missing, the loader synthesizes `line-0001`, `line-0002`, and so on.
 
-Inputs are validated against the active prompt pack's `variables.schema.json`
+Inputs are validated against the active prompt's `variables.schema.json`
 before provider execution starts.
 
 Sources:
@@ -238,10 +238,10 @@ Sources:
 | Column | Meaning |
 |---|---|
 | `cache_key` | primary key derived from prompt version, case ID, model, and config hash |
-| `prompt_version` | prompt pack version |
+| `prompt_version` | prompt version |
 | `case_id` | dataset case ID |
 | `model` | generation model |
-| `config_hash` | stable hash of prompt pack, dataset, provider, and config |
+| `config_hash` | stable hash of prompt, dataset, provider, and config |
 | `response_json` | serialized `CachedResponse` |
 | `created_at` | UTC timestamp |
 
@@ -253,11 +253,11 @@ Source:
 
 ## Versioning And Compatibility Notes
 
-### Prompt packs
+### Prompts
 
 - `apiVersion` is loaded and preserved from `manifest.yaml`.
 - Current runtime behavior does not branch on `apiVersion`.
-- Opening an older prompt pack can auto-create a default `prompt.json`.
+- Opening an older prompt can auto-create a default `prompt.json`.
 
 ### Forge sessions
 

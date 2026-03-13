@@ -20,17 +20,17 @@ def resolve_prompt_pack_path(prompt_version: str | Path) -> Path:
     path = Path(prompt_version)
     if path.exists():
         return path
-    candidate = settings.prompt_pack_dir / prompt_version
+    candidate = settings.prompt_dir / prompt_version
     if candidate.exists():
         return candidate
-    raise FileNotFoundError(f"Prompt pack not found: {prompt_version}")
+    raise FileNotFoundError(f"Prompt not found: {prompt_version}")
 
 
 def load_prompt_pack(prompt_version: str | Path) -> PromptPack:
     root = resolve_prompt_pack_path(prompt_version)
     missing = [name for name in PROMPT_FILES if not (root / name).exists()]
     if missing:
-        raise FileNotFoundError(f"Prompt pack {root} is missing files: {', '.join(missing)}")
+        raise FileNotFoundError(f"Prompt {root} is missing files: {', '.join(missing)}")
 
     manifest = PromptPackManifest.model_validate(
         yaml.safe_load((root / "manifest.yaml").read_text(encoding="utf-8"))

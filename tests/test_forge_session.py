@@ -94,12 +94,12 @@ def _build_output(*, user_prompt: str, improved: bool) -> str:
 
 def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
-    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+    monkeypatch.setattr(settings, "prompt_dir", tmp_path / "exported_prompts")
 
     gateway = FakeForgeGateway()
     session = asyncio.run(
         ForgeSession.create(
-            prompt_ref="prompt_packs/v1",
+            prompt_ref="prompts/v1",
             dataset_path="datasets/core.jsonl",
             bench_dataset_path=None,
             model="fake-model",
@@ -155,7 +155,7 @@ def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path,
     latest = asyncio.run(session.run_full_evaluation())
     assert latest.full_evaluation is not None
 
-    export_path = session.export_prompt_pack("v-forge-export")
+    export_path = session.export_prompt("v-forge-export")
     exported_manifest = yaml.safe_load((export_path / "manifest.yaml").read_text(encoding="utf-8"))
     assert exported_manifest["version"] == "v-forge-export"
 
@@ -166,12 +166,12 @@ def test_forge_session_tracks_revisions_and_disables_cache_for_repeats(tmp_path,
 
 def test_prepare_and_apply_agent_request_stages_then_creates_revision(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
-    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+    monkeypatch.setattr(settings, "prompt_dir", tmp_path / "exported_prompts")
 
     gateway = FakeForgeGateway()
     session = asyncio.run(
         ForgeSession.create(
-            prompt_ref="prompt_packs/v1",
+            prompt_ref="prompts/v1",
             dataset_path="datasets/core.jsonl",
             bench_dataset_path=None,
             model="fake-model",
@@ -219,12 +219,12 @@ def test_prepare_and_apply_agent_request_stages_then_creates_revision(tmp_path, 
 
 def test_discard_prepared_edit_keeps_working_prompt_unchanged(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
-    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+    monkeypatch.setattr(settings, "prompt_dir", tmp_path / "exported_prompts")
 
     gateway = FakeForgeGateway()
     session = asyncio.run(
         ForgeSession.create(
-            prompt_ref="prompt_packs/v1",
+            prompt_ref="prompts/v1",
             dataset_path="datasets/core.jsonl",
             bench_dataset_path=None,
             model="fake-model",
@@ -257,12 +257,12 @@ def test_discard_prepared_edit_keeps_working_prompt_unchanged(tmp_path, monkeypa
 
 def test_apply_prepared_edit_keeps_working_prompt_when_staged_prompt_is_invalid(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
-    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+    monkeypatch.setattr(settings, "prompt_dir", tmp_path / "exported_prompts")
 
     gateway = FakeForgeGateway()
     session = asyncio.run(
         ForgeSession.create(
-            prompt_ref="prompt_packs/v1",
+            prompt_ref="prompts/v1",
             dataset_path="datasets/core.jsonl",
             bench_dataset_path=None,
             model="fake-model",
@@ -280,7 +280,7 @@ def test_apply_prepared_edit_keeps_working_prompt_when_staged_prompt_is_invalid(
     async def fake_bad_edit(self, request: str, *, workdir=None) -> str:
         manifest_path = (workdir or self.working_prompt_dir) / "manifest.yaml"
         manifest_path.write_text("version: [broken\n", encoding="utf-8")
-        return "Prepared invalid prompt pack."
+        return "Prepared invalid prompt."
 
     monkeypatch.setattr(ForgeSession, "_run_codex_edit_agent", fake_bad_edit)
 
@@ -306,12 +306,12 @@ def test_apply_prepared_edit_keeps_working_prompt_when_staged_prompt_is_invalid(
 )
 def test_directory_swaps_roll_back_when_revision_creation_fails(tmp_path, monkeypatch, operation_name: str, target_name: str) -> None:
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
-    monkeypatch.setattr(settings, "prompt_pack_dir", tmp_path / "exported_packs")
+    monkeypatch.setattr(settings, "prompt_dir", tmp_path / "exported_prompts")
 
     gateway = FakeForgeGateway()
     session = asyncio.run(
         ForgeSession.create(
-            prompt_ref="prompt_packs/v1",
+            prompt_ref="prompts/v1",
             dataset_path="datasets/core.jsonl",
             bench_dataset_path=None,
             model="fake-model",

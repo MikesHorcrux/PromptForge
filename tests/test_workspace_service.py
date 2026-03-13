@@ -59,20 +59,20 @@ class FakeForgeGateway:
         )
 
 
-def _seed_prompt_packs(root: Path) -> None:
-    shutil.copytree(Path("prompt_packs") / "v1", root / "v1")
+def _seed_prompts(root: Path) -> None:
+    shutil.copytree(Path("prompts") / "v1", root / "v1")
 
 
 def test_workspace_service_lists_creates_and_tracks_sessions(tmp_path, monkeypatch) -> None:
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(settings, "prompt_pack_dir", prompt_root)
+    monkeypatch.setattr(settings, "prompt_dir", prompt_root)
     monkeypatch.setattr(settings, "dataset_dir", dataset_root)
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
 
@@ -151,15 +151,15 @@ def test_workspace_service_lists_creates_and_tracks_sessions(tmp_path, monkeypat
 
 
 def test_workspace_service_stages_agent_edits_before_apply(tmp_path, monkeypatch) -> None:
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(settings, "prompt_pack_dir", prompt_root)
+    monkeypatch.setattr(settings, "prompt_dir", prompt_root)
     monkeypatch.setattr(settings, "dataset_dir", dataset_root)
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")
 
@@ -200,15 +200,15 @@ def test_workspace_service_stages_agent_edits_before_apply(tmp_path, monkeypatch
 
 
 def test_workspace_supports_scenarios_playground_and_review_decisions(tmp_path, monkeypatch) -> None:
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(settings, "prompt_pack_dir", prompt_root)
+    monkeypatch.setattr(settings, "prompt_dir", prompt_root)
     monkeypatch.setattr(settings, "dataset_dir", dataset_root)
     monkeypatch.setattr(settings, "scenario_dir", Path("scenarios"))
     monkeypatch.setattr(settings, "var_dir", tmp_path / "var")

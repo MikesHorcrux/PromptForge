@@ -9,7 +9,7 @@ chat turn.
 
 ## What the runtime optimizes for
 
-- stable inputs through versioned prompt packs and fixed JSONL datasets
+- stable inputs through versioned prompts and fixed JSONL datasets
 - reproducibility through hashes, lockfiles, and cached outputs
 - explicit output contracts through format expectations and hard-fail rules
 - human-readable conclusions through Markdown reports

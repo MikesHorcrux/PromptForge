@@ -5,7 +5,7 @@ _Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 ## What is PromptForge in one sentence?
 
 PromptForge is a local prompt engineering workbench that evaluates versioned
-prompt packs against fixed datasets, lets you iterate interactively in a macOS
+prompts against fixed datasets, lets you iterate interactively in a macOS
 app, and writes reproducible artifacts.
 
 ## Do I need the macOS app to use PromptForge?
@@ -26,9 +26,9 @@ The app is the interactive workspace for:
 Yes. `pf forge` is a macOS path. The Python CLI and runtime are still useful
 outside the app.
 
-## What exactly is a prompt pack?
+## What exactly is a prompt?
 
-A prompt pack is a directory containing:
+A prompt is a directory containing:
 
 - `manifest.yaml`
 - `system.md`
@@ -53,7 +53,7 @@ It stores prompt-level metadata such as:
 - owner and audience fields
 - builder settings
 
-If an older prompt pack does not have `prompt.json`, PromptForge can create a
+If an older prompt does not have `prompt.json`, PromptForge can create a
 default one when the prompt is opened.
 
 ## Why do I see `prompt_blocks` in the metadata if the UI is file-first now?
@@ -151,7 +151,7 @@ The cache table is recreated automatically on the next run.
 
 Yes. Empty projects are now a first-class state in the app and helper.
 
-You can open the project, then create or import a prompt pack.
+You can open the project, then create or import a prompt.
 
 ## Why does the app say the bundled runtime is missing?
 

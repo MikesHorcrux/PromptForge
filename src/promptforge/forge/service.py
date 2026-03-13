@@ -74,7 +74,7 @@ Hard boundaries:
   - user_template.md
   - manifest.yaml
   - variables.schema.json
-- Do not touch files outside the current prompt pack workspace.
+- Do not touch files outside the current prompt workspace.
 - Keep prompt edits concise and purposeful.
 - Preserve valid YAML and JSON when editing manifest.yaml or variables.schema.json.
 - Use the benchmark evidence below to guide the change.
@@ -96,7 +96,7 @@ User request:
 
 COACH_SYSTEM_PROMPT = """You are PromptForge, a terminal prompt engineering coach.
 
-Your job is to help a user improve a prompt pack based on benchmark evidence.
+Your job is to help a user improve a prompt based on benchmark evidence.
 
 Rules:
 - Recommend concrete edits to the system prompt and user template.
@@ -108,7 +108,7 @@ Rules:
 
 AGENT_CHAT_SYSTEM_PROMPT = """You are PromptForge, an interactive prompt engineering agent inside a local workspace.
 
-You are collaborating with the user on one prompt pack.
+You are collaborating with the user on one prompt.
 
 Rules:
 - Converse naturally and build on prior turns.
@@ -876,7 +876,7 @@ class ForgeSession:
         guidance_prompt = (
             "Prompt brief:\n"
             f"{brief_text.strip()}\n\n"
-            "Current prompt pack:\n"
+            "Current prompt:\n"
             "=== SYSTEM PROMPT ===\n"
             f"{current_system_prompt.strip()}\n\n"
             "=== USER TEMPLATE ===\n"
@@ -915,10 +915,10 @@ class ForgeSession:
             raise RuntimeError(response.error)
         return (response.output_text or "").strip()
 
-    def export_prompt_pack(self, version: str) -> Path:
-        destination = settings.prompt_pack_dir / version
+    def export_prompt(self, version: str) -> Path:
+        destination = settings.prompt_dir / version
         if destination.exists():
-            raise FileExistsError(f"Prompt pack already exists: {version}")
+            raise FileExistsError(f"Prompt already exists: {version}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(self.working_prompt_dir, destination)
         manifest_path = destination / "manifest.yaml"

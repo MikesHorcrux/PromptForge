@@ -62,14 +62,14 @@ class FakeForgeGateway:
         )
 
 
-def _seed_prompt_packs(root: Path) -> None:
-    shutil.copytree(Path("prompt_packs") / "v1", root / "v1")
+def _seed_prompts(root: Path) -> None:
+    shutil.copytree(Path("prompts") / "v1", root / "v1")
 
 
 def test_helper_empty_project_status_settings_and_prompts_succeed(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -93,14 +93,14 @@ def test_helper_empty_project_status_settings_and_prompts_succeed(tmp_path, monk
 
 def test_helper_exposes_project_prompt_and_benchmark_contract(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -148,14 +148,14 @@ def test_helper_exposes_project_prompt_and_benchmark_contract(tmp_path, monkeypa
 
 def test_helper_event_subscription_long_polls_until_next_event(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -182,14 +182,14 @@ def test_helper_event_subscription_long_polls_until_next_event(tmp_path, monkeyp
 
 def test_helper_settings_can_be_read_and_updated(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -225,14 +225,14 @@ def test_helper_settings_can_be_read_and_updated(tmp_path, monkeypatch) -> None:
 
 def test_helper_prompt_views_do_not_force_session_creation(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -252,14 +252,14 @@ def test_helper_prompt_views_do_not_force_session_creation(tmp_path, monkeypatch
 
 def test_helper_prompt_save_persists_prompt_workspace_fields(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -311,14 +311,14 @@ def test_helper_prompt_save_persists_prompt_workspace_fields(tmp_path, monkeypat
 
 def test_helper_status_degrades_when_codex_probe_fails(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr("promptforge.forge.workspace.build_gateway", lambda **_: FakeForgeGateway())
@@ -345,7 +345,7 @@ def test_helper_status_degrades_when_codex_probe_fails(tmp_path, monkeypatch) ->
 def test_helper_exposes_structured_codex_auth_actions(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))
     monkeypatch.setattr(settings, "codex_bin", "/tmp/bundled-codex")
@@ -379,16 +379,16 @@ def test_helper_exposes_structured_codex_auth_actions(tmp_path, monkeypatch) -> 
 
 def test_helper_uses_engine_root_datasets_for_external_projects(tmp_path, monkeypatch) -> None:
     original_cwd = Path.cwd()
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
 
     engine_root = tmp_path / "engine"
     engine_dataset_root = engine_root / "datasets"
     engine_dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", engine_dataset_root / "core.jsonl")
 
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "engine_root", engine_root)
     monkeypatch.setattr(settings, "var_dir", Path("var"))

@@ -53,7 +53,7 @@ pf status
 
 Proceed only when:
 
-- prompt pack resolution works
+- prompt resolution works
 - dataset resolution works
 - provider auth is ready
 - model access returns `PF_OK`
@@ -74,7 +74,7 @@ Important:
 
 - empty projects are supported in the app
 - the first app open can show a no-prompts workspace instead of failing
-- create or import a prompt pack from the app when needed
+- create or import a prompt from the app when needed
 
 ## Day-2 Routine Operations
 
@@ -207,7 +207,7 @@ Recovery note:
 Actions:
 
 1. inspect `run.lock.json`
-2. confirm prompt pack hash and dataset hash
+2. confirm prompt hash and dataset hash
 3. delete `var/state/cache.sqlite3` if cache reuse is no longer trusted
 4. rerun
 
@@ -272,7 +272,7 @@ Safe to delete when you understand the consequences:
 Do not delete casually:
 
 - `.promptforge/project.json`
-- active prompt packs
+- active prompts
 - datasets
 - scenarios
 

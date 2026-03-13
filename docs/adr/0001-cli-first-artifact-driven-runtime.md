@@ -9,7 +9,7 @@ _Last verified against commit `4995d46a2ca16a3f56824412acc547118ed6d804`._
 This record captures the original v1 shape of PromptForge before the macOS app
 and local helper became the primary interactive prompt-workspace surface.
 
-PromptForge is still used to evaluate prompt packs locally or in CI-style
+PromptForge is still used to evaluate prompts locally or in CI-style
 workflows. The CLI remains the setup, status, and batch-evaluation surface, and
 the system still has no long-running service, scheduler, queue, or HTTP API.
 

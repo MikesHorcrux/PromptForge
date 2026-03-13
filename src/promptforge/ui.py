@@ -291,7 +291,7 @@ def print_forge_help() -> None:
             "/cases                 Show the weakest benchmark cases",
             "/failures              Show only hard-failing benchmark cases",
             "/coach <request>       Ask for advice without editing the prompt",
-            "/save <version>        Export the working prompt pack to prompt_packs/<version>",
+            "/save <version>        Export the working prompt to prompts/<version>",
             "/reset [note]          Reset the working prompt back to the baseline",
             "/quit                  Leave the workspace session",
             "",

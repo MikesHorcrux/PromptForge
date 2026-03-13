@@ -406,7 +406,7 @@ class PromptForgeHelper:
         if not prompts:
             if allow_missing:
                 return None
-            raise ValueError("No prompt packs are available in this project.")
+            raise ValueError("No prompts are available in this project.")
         versions = {prompt.version for prompt in prompts}
         explicit_prompt = params.get("prompt")
         prompt = str(explicit_prompt or self.project.metadata.last_opened_prompt or "").strip()
@@ -414,7 +414,7 @@ class PromptForgeHelper:
             if not prompt:
                 raise ValueError("Prompt reference cannot be empty.")
             if prompt not in versions:
-                raise ValueError(f"Prompt pack not found: {prompt}")
+                raise ValueError(f"Prompt not found: {prompt}")
             return prompt
         if prompt in versions:
             return prompt

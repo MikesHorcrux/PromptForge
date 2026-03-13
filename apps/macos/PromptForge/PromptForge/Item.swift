@@ -205,7 +205,7 @@ final class PromptForgeAppModel: ObservableObject {
         }
     }
 
-    func importPromptPack() {
+    func importPrompt() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -214,12 +214,12 @@ final class PromptForgeAppModel: ObservableObject {
         panel.message = "Choose a prompt folder to import."
         if panel.runModal() == .OK, let url = panel.url {
             Task {
-                await importPromptPack(from: url)
+                await importPrompt(from: url)
             }
         }
     }
 
-    private func importPromptPack(from url: URL) async {
+    private func importPrompt(from url: URL) async {
         guard let helper else {
             appendTranscript(.warning, "Import prompt", "Open a project before importing a prompt.")
             return

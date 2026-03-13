@@ -66,12 +66,12 @@ That design shows up directly in the code:
 | Runtime locator | `apps/macos/PromptForge/PromptForge/PromptForgeApp.swift`, `Item.swift` | Resolves explicit, bundled, saved, or debug fallback engine roots |
 | Helper RPC boundary | `src/promptforge/helper/server.py` | Exposes project, prompt, scenario, review, benchmark, and agent methods over a local socket |
 | Project metadata | `src/promptforge/project.py` | Stores `.promptforge/project.json` and initializes missing project directories |
-| Prompt metadata | `src/promptforge/prompts/brief.py` | Stores `prompt.json` per prompt pack |
+| Prompt metadata | `src/promptforge/prompts/brief.py` | Stores `prompt.json` per prompt |
 | Prompt loading | `src/promptforge/prompts/loader.py` | Loads required prompt-pack files, validates them, renders user prompts |
 | Dataset loading | `src/promptforge/datasets/loader.py` | Loads JSONL datasets and computes dataset hashes |
 | Forge workspace | `src/promptforge/forge/workspace.py` | Lists prompts, tracks active prompt/session, saves workspace changes, runs scenarios, playground, and reviews |
 | Forge session | `src/promptforge/forge/service.py` | Owns working prompt copy, revisions, staged edits, benchmark runs, restore/promote flows |
-| Core contracts | `src/promptforge/core/models.py` | Typed models for prompt packs, datasets, runs, scores, comparisons, cache rows |
+| Core contracts | `src/promptforge/core/models.py` | Typed models for prompts, datasets, runs, scores, comparisons, cache rows |
 | Runtime | `src/promptforge/runtime/run_service.py` | Runs evaluations, compares prompt versions, writes artifacts |
 | Provider boundary | `src/promptforge/runtime/gateway.py` | OpenAI-compatible and Codex execution plus mixed-provider composition |
 | Deterministic scoring | `src/promptforge/scoring/rules.py` | Required sections, required strings, forbidden strings, JSON validity, word limits, policy markers |
@@ -160,7 +160,7 @@ flowchart LR
 
 ### What stays local
 
-- prompt packs and prompt metadata
+- prompts and prompt metadata
 - datasets and scenario suites
 - project metadata
 - forge revisions, pending edits, chat history, reviews, decisions

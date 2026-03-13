@@ -76,7 +76,7 @@ struct PromptForgeNativeTransportTests {
         #expect((insights?["weak_cases"] as? [[String: Any]] ?? []).isEmpty)
 
         let savedSystem = try String(
-            contentsOf: tempRoot.appendingPathComponent("prompt_packs/support-policy/system.md"),
+            contentsOf: tempRoot.appendingPathComponent("prompts/support-policy/system.md"),
             encoding: .utf8
         )
         #expect(savedSystem.contains("You are a careful assistant."))

@@ -1,38 +1,35 @@
+<p align="center">
+  <img src="docs/assets/promptforge-banner.png" alt="PromptForge banner" width="100%" />
+</p>
+
 # PromptForge
 
-PromptForge is intended to become a self-contained macOS prompt IDE with an integrated agent for authoring, testing, and evaluating prompts locally.
+PromptForge is building toward a self-contained macOS prompt IDE with an integrated agent for editing prompts, trying inputs, running tests, and reviewing changes locally.
 
-Today, this repository is closer to "engine plus early app" than a finished downloadable product:
+Today, this repo already includes:
 
-- a Python runtime and CLI for running prompt packs against datasets
-- reproducible run artifacts, scoring, comparison, and reporting
-- a macOS app shell that opens local projects, edits prompt packs, runs checks, and talks to a local helper/agent
-- provider paths for OpenAI API and Codex auth today, with room to expand later
+- a macOS app shell for prompt editing and agent-driven workflows
+- a local engine and helper boundary
+- prompt projects stored on disk under `prompts/`
+- OpenAI API and Codex auth provider paths
+- reproducible datasets, scenario suites, and evaluation runs
 
-## Current State
+## Product Shape
 
-What already exists:
+PromptForge is the tool you use to create and improve prompts.
 
-- versioned prompt packs in `prompt_packs/<version>/`
-- JSONL datasets in `datasets/`
-- evaluation runs under `var/runs/<run_id>/`
-- local workspace/session state under `var/forge/`
-- a local helper process used by the macOS app
-- agent-assisted prompt editing, prompt reviews, test suites, and quick/full evaluations in the app
+- prompts live in `prompts/<version>/`
+- datasets live in `datasets/`
+- saved test suites live in `scenarios/`
+- run artifacts live in `var/runs/<run_id>/`
+- local workspace state lives in `var/forge/`
 
-What is still missing if the goal is "easy to download and use":
+The direction is straightforward:
 
-- a polished app distribution story
-- a hardened packaged runtime that does not depend on a developer-style local setup
-- signing/notarization/release automation for macOS
-- simpler onboarding for non-technical users
-
-If your target is a real prompt IDE product, the right framing is:
-
-1. the Python runtime is the engine
-2. the macOS app is the product surface
-3. the helper is the local boundary between them
-4. packaging and release need to be treated as first-class work, not an afterthought
+1. the macOS app is the main product surface
+2. the helper is the local boundary for agent and runtime work
+3. OpenAI API and Codex auth are the first provider paths
+4. the app moves toward a fully bundled native macOS release
 
 ## Development Setup
 
@@ -45,13 +42,19 @@ If your target is a real prompt IDE product, the right framing is:
 
 ## Core Commands
 
-Run one prompt pack:
+Open the macOS app:
+
+```bash
+pf app
+```
+
+Run one prompt:
 
 ```bash
 pf run --prompt v1 --dataset datasets/core.jsonl
 ```
 
-Compare two prompt packs:
+Compare two prompts:
 
 ```bash
 pf compare --a v1 --b v2 --dataset datasets/core.jsonl
@@ -63,52 +66,46 @@ Rebuild or print a report:
 pf report --run <run_id>
 ```
 
-Open the macOS workspace:
-
-```bash
-pf app
-```
-
 Run tests:
 
 ```bash
 pytest -q
 ```
 
-## Architecture
-
-The current architecture is local-first:
-
-- the CLI and app both operate on a project folder
-- prompt definitions live on disk under `prompt_packs/`
-- datasets are immutable JSONL files
-- evaluations write reproducible artifacts to `var/runs/`
-- the macOS app launches a local Python helper over a Unix socket
-- provider access is abstracted behind the runtime gateway layer
-
-The bundled app path now emits a runtime manifest and can bundle the native Codex CLI into the app resources when it is available at build time. That tightens the runtime contract and moves the app closer to a real self-contained build, but it is still not the same thing as a polished signed/notarized consumer release.
-
 ## Repository Layout
 
 ```text
-apps/macos/PromptForge/       SwiftUI macOS app and bundle script
+apps/macos/PromptForge/       SwiftUI macOS app
 apps/README.md                Product-surface map
 datasets/                     JSONL evaluation datasets
 docs/                         Architecture and operational docs
 packaging/                    App packaging and release support files
-prompt_packs/                 Versioned prompt packs
-scenarios/                    Saved prompt test suites
+prompts/                      Versioned prompt definitions
+scenarios/                    Saved test suites
 src/README.md                 Engine map
 src/promptforge/              Runtime, CLI, helper, workspace, scoring
 tests/                        Automated tests
 var/                          Generated local artifacts and state
 ```
 
-## Direction
+## Current State
 
-If the next milestone is the product you described, the priorities should be:
+This is still closer to "engine plus app in progress" than a finished consumer download.
 
-1. make the macOS app the primary experience
-2. keep OpenAI API and Codex auth as the first two provider paths
-3. tighten the agent workflow inside the IDE around edit, test, review, and ship
-4. build a real bundled-runtime and release pipeline for macOS distribution
+What is already working:
+
+- prompt editing and project management in the macOS app
+- local helper-backed workflows for prompt loading, saving, tests, and reviews
+- reproducible evaluation runs and comparison reports
+- OpenAI and Codex connectivity paths
+
+What still needs hardening for release:
+
+- a fully bundled runtime contract
+- first-run onboarding polish
+- signing, notarization, and release automation
+- a smaller native helper surface as the Swift migration continues
+
+<p align="center">
+  <img src="docs/assets/promptforge-footer.png" alt="PromptForge footer banner" width="100%" />
+</p>

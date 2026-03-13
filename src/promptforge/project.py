@@ -67,7 +67,7 @@ class PromptForgeProject:
 
     def ensure_layout(self) -> None:
         self.project_dir.mkdir(parents=True, exist_ok=True)
-        (self.root / settings.prompt_pack_dir).mkdir(parents=True, exist_ok=True)
+        (self.root / settings.prompt_dir).mkdir(parents=True, exist_ok=True)
         (self.root / settings.dataset_dir).mkdir(parents=True, exist_ok=True)
         (self.root / settings.scenario_dir).mkdir(parents=True, exist_ok=True)
         (self.root / settings.var_dir).mkdir(parents=True, exist_ok=True)

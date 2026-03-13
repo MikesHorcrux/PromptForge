@@ -1,2 +1,1 @@
-"""Prompt pack loading helpers."""
-
+"""Prompt loading helpers."""

@@ -210,7 +210,7 @@ def _status_command(args: argparse.Namespace) -> int:
     workspace_rows = [
         ("Project", project.metadata.name),
         ("Project root", str(project.root)),
-        ("Prompt packs", str(settings.prompt_pack_dir)),
+        ("Prompts", str(settings.prompt_dir)),
         ("Datasets", str(settings.dataset_dir)),
         ("Var dir", str(settings.var_dir)),
         ("Quick-check dataset", project.metadata.quick_benchmark_dataset),
@@ -381,7 +381,7 @@ def _prompts_command(args: argparse.Namespace) -> int:
             name=args.name,
         )
         workspace.set_active_prompt(args.prompt)
-        print_success(f"Created prompt pack at {destination}.")
+        print_success(f"Created prompt at {destination}.")
         return 0
     raise ValueError(f"Unknown prompts command: {args.prompts_command}")
 
@@ -560,13 +560,13 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--failure-threshold", type=float, default=settings.default_failure_threshold)
         subparser.add_argument("--scoring-config", default=None, help="Optional YAML scoring config")
 
-    run_parser = subparsers.add_parser("run", help="Run one prompt pack against a dataset")
-    run_parser.add_argument("--prompt", required=True, help="Prompt pack version or path")
+    run_parser = subparsers.add_parser("run", help="Run one prompt against a dataset")
+    run_parser.add_argument("--prompt", required=True, help="Prompt version or path")
     add_shared_args(run_parser)
 
-    compare_parser = subparsers.add_parser("compare", help="Compare two prompt packs against one dataset")
-    compare_parser.add_argument("--a", required=True, help="Baseline prompt pack version or path")
-    compare_parser.add_argument("--b", required=True, help="Candidate prompt pack version or path")
+    compare_parser = subparsers.add_parser("compare", help="Compare two prompts against one dataset")
+    compare_parser.add_argument("--a", required=True, help="Baseline prompt version or path")
+    compare_parser.add_argument("--b", required=True, help="Candidate prompt version or path")
     add_shared_args(compare_parser)
 
     forge_parser = subparsers.add_parser(
@@ -576,14 +576,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     forge_parser.add_argument("--project", default=".", help="PromptForge project root to open")
 
-    prompts_parser = subparsers.add_parser("prompts", help="List or create prompt packs")
+    prompts_parser = subparsers.add_parser("prompts", help="List or create prompts")
     prompts_subparsers = prompts_parser.add_subparsers(dest="prompts_command", required=True)
-    prompts_list_parser = prompts_subparsers.add_parser("list", help="List available prompt packs")
+    prompts_list_parser = prompts_subparsers.add_parser("list", help="List available prompts")
     prompts_list_parser.set_defaults(prompts_command="list")
-    prompts_create_parser = prompts_subparsers.add_parser("create", help="Create a new prompt pack")
-    prompts_create_parser.add_argument("--prompt", required=True, help="New prompt pack version")
-    prompts_create_parser.add_argument("--from", dest="from_prompt", default=None, help="Clone from an existing prompt pack")
-    prompts_create_parser.add_argument("--name", default=None, help="Optional display name for the prompt pack")
+    prompts_create_parser = prompts_subparsers.add_parser("create", help="Create a new prompt")
+    prompts_create_parser.add_argument("--prompt", required=True, help="New prompt version")
+    prompts_create_parser.add_argument("--from", dest="from_prompt", default=None, help="Clone from an existing prompt")
+    prompts_create_parser.add_argument("--name", default=None, help="Optional display name for the prompt")
     prompts_create_parser.set_defaults(prompts_command="create")
 
     scenario_parser = subparsers.add_parser(
@@ -639,7 +639,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="Show auth, provider defaults, and active workspace state")
 
     doctor_parser = subparsers.add_parser("doctor", help="Check environment and model access")
-    doctor_parser.add_argument("--prompt", default="v1", help="Prompt pack to validate")
+    doctor_parser.add_argument("--prompt", default="v1", help="Prompt to validate")
     doctor_parser.add_argument("--dataset", default="datasets/core.jsonl", help="Dataset to validate")
     doctor_parser.add_argument("--model", default=settings.openai_base_model, help="Model to test")
     doctor_parser.add_argument("--provider", choices=["openai", "openrouter", "codex"], default=settings.provider)

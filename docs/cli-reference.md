@@ -124,7 +124,7 @@ Flags:
 
 | Flag | Meaning |
 |---|---|
-| `--prompt` | prompt pack to validate |
+| `--prompt` | prompt to validate |
 | `--dataset` | dataset to validate |
 | `--model` | model used for the live check |
 | `--provider` | provider to test |
@@ -183,7 +183,7 @@ Use it when:
 
 ## `pf prompts list`
 
-Lists prompt packs in the current project.
+Lists prompts in the current project.
 
 ```bash
 pf prompts list
@@ -196,7 +196,7 @@ Use it when:
 
 ## `pf prompts create`
 
-Creates a new prompt pack, optionally cloned from an existing pack.
+Creates a new prompt, optionally cloned from an existing pack.
 
 ```bash
 pf prompts create --prompt draft-v2
@@ -207,8 +207,8 @@ Flags:
 
 | Flag | Meaning |
 |---|---|
-| `--prompt` | new prompt pack version |
-| `--from` | optional source prompt pack to clone |
+| `--prompt` | new prompt version |
+| `--from` | optional source prompt to clone |
 | `--name` | optional display name |
 
 Creates:
@@ -345,7 +345,7 @@ Flags:
 
 ## `pf run`
 
-Runs one prompt pack against one dataset.
+Runs one prompt against one dataset.
 
 ```bash
 pf run --prompt v1 --dataset datasets/core.jsonl
@@ -357,7 +357,7 @@ Required flags:
 
 | Flag | Meaning |
 |---|---|
-| `--prompt` | prompt pack version or path |
+| `--prompt` | prompt version or path |
 | `--dataset` | path to a JSONL dataset |
 
 Outputs:
@@ -375,7 +375,7 @@ Use it when:
 
 ## `pf compare`
 
-Runs two prompt packs against one dataset and writes a comparison run.
+Runs two prompts against one dataset and writes a comparison run.
 
 ```bash
 pf compare --a v1 --b v2 --dataset datasets/core.jsonl
@@ -386,8 +386,8 @@ Required flags:
 
 | Flag | Meaning |
 |---|---|
-| `--a` | baseline prompt pack version or path |
-| `--b` | candidate prompt pack version or path |
+| `--a` | baseline prompt version or path |
+| `--b` | candidate prompt version or path |
 | `--dataset` | path to a JSONL dataset |
 
 Use it when:
@@ -463,7 +463,7 @@ pf ship --prompt v2 --summary "Ship after passing core review"
 | `pf app` | app fails to open | app not installed or not built | build/install `PromptForge.app` or set `PF_APP_PATH` |
 | `pf prompts create` | prompt already exists | version directory already present | choose a new version or remove the old directory |
 | `pf tests run` | suite missing | suite ID not found | run `pf tests list` first |
-| `pf run` | prompt pack invalid | missing required prompt files | fix `manifest.yaml`, `system.md`, `user_template.md`, or `variables.schema.json` |
+| `pf run` | prompt invalid | missing required prompt files | fix `manifest.yaml`, `system.md`, `user_template.md`, or `variables.schema.json` |
 | `pf run` | dataset case rejected | schema mismatch | fix `case.input` to satisfy `variables.schema.json` |
 | `pf compare` | confusing winner | hard-fails outweighed score deltas | inspect child runs and `comparison.json` |
 | `pf report` | report missing | run directory incomplete | inspect the run directory and logs, then rerun if needed |

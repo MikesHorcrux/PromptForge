@@ -120,7 +120,7 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> Requested
-  Requested --> Validating : load prompt pack + dataset
+  Requested --> Validating : load prompt + dataset
   Validating --> Failed : missing files / invalid JSON / schema mismatch
   Validating --> Initialized : run dir + lockfile written
   Initialized --> Executing
@@ -140,7 +140,7 @@ stateDiagram-v2
 | Prompt load | `src/promptforge/prompts/loader.py` | prompt ref or path | `PromptPack` | none | missing files, invalid YAML/JSON |
 | Dataset load | `src/promptforge/datasets/loader.py` | dataset path | `LoadedDataset` | none | missing file, empty dataset, bad JSONL |
 | Input validation | `validate_case_inputs()` | prompt schema, `case.input` | validated cases | none | schema mismatch |
-| Run init | `EvaluationService.run()` | prompt pack, dataset, config | `run.json`, `run.lock.json` | durable run ID + lockfile | filesystem errors |
+| Run init | `EvaluationService.run()` | prompt, dataset, config | `run.json`, `run.lock.json` | durable run ID + lockfile | filesystem errors |
 | Case execution | `_execute_cases()` | rendered prompt, provider config | `ModelExecutionResult[]` | cache rows for successful uncached generations | auth failures, timeouts, provider errors |
 | Soft stop | `_execute_cases()` | processed/failed counters | `stop_event` | none | failure threshold exceeded |
 | Rule scoring | `evaluate_rule_checks()` | output, case expectations | `RuleCheckResult` | none | deterministic; no provider dependency |
@@ -249,7 +249,7 @@ The response cache key includes:
 
 The config hash includes:
 
-- prompt pack hash
+- prompt hash
 - dataset hash
 - model
 - provider
@@ -320,7 +320,7 @@ Important behavior:
 
 ### Before provider calls
 
-- prompt pack missing required files
+- prompt missing required files
 - dataset not found or empty
 - dataset input fails JSON schema validation
 

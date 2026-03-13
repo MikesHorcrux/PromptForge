@@ -2,9 +2,9 @@
 
 ## Repository purpose
 
-This repository contains PromptForge, a CLI-first prompt evaluation agent built on
-the OpenAI Responses API. It runs prompt packs against fixed datasets, scores the
-outputs, compares versions, and emits reproducible artifacts.
+This repository contains PromptForge, a macOS-first prompt IDE with a local
+agent/runtime. It runs prompts against fixed datasets, scores the outputs,
+compares versions, and emits reproducible artifacts.
 
 ## Setup
 
@@ -16,14 +16,14 @@ outputs, compares versions, and emits reproducible artifacts.
 
 ## Commands
 
-- Run one prompt pack: `pf run --prompt v1 --dataset datasets/core.jsonl`
-- Compare prompt packs: `pf compare --a v1 --b v2 --dataset datasets/core.jsonl`
+- Run one prompt: `pf run --prompt v1 --dataset datasets/core.jsonl`
+- Compare prompts: `pf compare --a v1 --b v2 --dataset datasets/core.jsonl`
 - Rebuild a report: `pf report --run <run_id>`
 - Run tests: `pytest -q`
 
 ## Architecture rules
 
-- Keep prompt definitions in `prompt_packs/<version>/`, not inline strings.
+- Keep prompt definitions in `prompts/<version>/`, not inline strings.
 - Never mutate datasets during execution.
 - Cache model responses by prompt version, case id, model, and config hash.
 - Keep all externally consumed artifacts schema-first and reproducible.
@@ -34,4 +34,3 @@ outputs, compares versions, and emits reproducible artifacts.
 - Update docs when runtime behavior changes.
 - Add or update tests for scoring, comparison, and cache behavior.
 - Prefer small focused diffs.
-

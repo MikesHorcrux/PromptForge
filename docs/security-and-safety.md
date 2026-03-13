@@ -52,7 +52,7 @@ flowchart LR
     App["PromptForge.app"]
     Helper["Local helper"]
     CLI["pf CLI"]
-    Packs["prompt packs"]
+    Packs["prompts"]
     Data["datasets"]
     Scenarios["scenario suites"]
     Runs["var/runs"]

@@ -17,7 +17,7 @@ def test_render_prompt_pack_validates_and_renders() -> None:
 
 
 def test_render_prompt_pack_exposes_nested_input_payload(tmp_path) -> None:
-    prompt_root = tmp_path / "prompt_packs" / "draft"
+    prompt_root = tmp_path / "prompts" / "draft"
     prompt_root.mkdir(parents=True, exist_ok=True)
     (prompt_root / "manifest.yaml").write_text(
         "apiVersion: 1\nversion: draft\nname: Draft\ndescription: test\noutput_format: markdown\nrequired_sections: []\n",

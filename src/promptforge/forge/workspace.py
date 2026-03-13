@@ -105,9 +105,9 @@ class ForgeWorkspaceService:
         )
 
     def list_prompts(self) -> list[PromptSummary]:
-        settings.prompt_pack_dir.mkdir(parents=True, exist_ok=True)
+        settings.prompt_dir.mkdir(parents=True, exist_ok=True)
         prompts: list[PromptSummary] = []
-        for child in sorted(settings.prompt_pack_dir.iterdir(), key=lambda path: path.name.lower()):
+        for child in sorted(settings.prompt_dir.iterdir(), key=lambda path: path.name.lower()):
             if not child.is_dir():
                 continue
             try:
@@ -131,9 +131,9 @@ class ForgeWorkspaceService:
         self._persist_state()
 
     def create_prompt(self, version: str, *, from_prompt: str | None = None, name: str | None = None) -> Path:
-        destination = settings.prompt_pack_dir / version
+        destination = settings.prompt_dir / version
         if destination.exists():
-            raise FileExistsError(f"Prompt pack already exists: {version}")
+            raise FileExistsError(f"Prompt already exists: {version}")
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         if from_prompt:
@@ -196,9 +196,9 @@ class ForgeWorkspaceService:
 
     def import_prompt(self, source_path: str | Path) -> Path:
         source_pack = load_prompt_pack(Path(source_path).expanduser())
-        destination = settings.prompt_pack_dir / source_pack.manifest.version
+        destination = settings.prompt_dir / source_pack.manifest.version
         if destination.exists():
-            raise FileExistsError(f"Prompt pack already exists: {source_pack.manifest.version}")
+            raise FileExistsError(f"Prompt already exists: {source_pack.manifest.version}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source_pack.root, destination)
         ensure_prompt_brief(destination, description=source_pack.manifest.description)
@@ -528,7 +528,7 @@ class ForgeWorkspaceService:
     async def export_prompt(self, prompt_ref: str, version: str) -> Path:
         session = await self.ensure_session(prompt_ref)
         self.set_active_prompt(prompt_ref)
-        return session.export_prompt_pack(version)
+        return session.export_prompt(version)
 
     async def restore_revision(self, prompt_ref: str, revision_id: str):
         session = await self.ensure_session(prompt_ref)

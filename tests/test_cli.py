@@ -58,8 +58,8 @@ class FakeForgeGateway:
         )
 
 
-def _seed_prompt_packs(root: Path) -> None:
-    shutil.copytree(Path("prompt_packs") / "v1", root / "v1")
+def _seed_prompts(root: Path) -> None:
+    shutil.copytree(Path("prompts") / "v1", root / "v1")
 
 
 def test_parser_supports_legacy_and_simplified_commands() -> None:
@@ -73,15 +73,15 @@ def test_parser_supports_legacy_and_simplified_commands() -> None:
 
 
 def test_cli_supports_scenario_review_and_promote_flows(tmp_path, monkeypatch) -> None:
-    prompt_root = tmp_path / "prompt_packs"
+    prompt_root = tmp_path / "prompts"
     prompt_root.mkdir(parents=True, exist_ok=True)
-    _seed_prompt_packs(prompt_root)
+    _seed_prompts(prompt_root)
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path("datasets") / "core.jsonl", dataset_root / "core.jsonl")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(settings, "prompt_pack_dir", Path("prompt_packs"))
+    monkeypatch.setattr(settings, "prompt_dir", Path("prompts"))
     monkeypatch.setattr(settings, "dataset_dir", Path("datasets"))
     monkeypatch.setattr(settings, "scenario_dir", Path("scenarios"))
     monkeypatch.setattr(settings, "var_dir", Path("var"))

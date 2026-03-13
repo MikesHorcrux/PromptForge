@@ -2,7 +2,7 @@ import Foundation
 
 private let nativeProjectDirectoryName = ".promptforge"
 private let nativeProjectMetadataFileName = "project.json"
-private let nativePromptDirectoryName = "prompt_packs"
+private let nativePromptDirectoryName = "prompts"
 private let nativeDatasetDirectoryName = "datasets"
 private let nativeScenarioDirectoryName = "scenarios"
 private let nativeVarDirectoryName = "var"
