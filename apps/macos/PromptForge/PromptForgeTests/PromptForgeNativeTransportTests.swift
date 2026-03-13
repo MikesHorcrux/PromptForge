@@ -112,4 +112,25 @@ struct PromptForgeNativeTransportTests {
         }
         #expect(didThrow)
     }
+
+    @Test func nativeCodexEndpointsReturnStructuredFailureWhenCLIIsMissing() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let service = try NativeProjectService(
+            projectRoot: tempRoot.path,
+            codexBinary: "/definitely/missing/codex"
+        )
+
+        let deviceAuth = try service.handle(method: .connectionsCodexDeviceAuth, params: [:])
+        #expect((deviceAuth["instructions"] as? String ?? "").contains("Codex CLI not found"))
+
+        let loginResult = try service.handle(
+            method: .connectionsCodexLoginAPIKey,
+            params: ["api_key": "sk-test"]
+        )
+        #expect(loginResult["success"] as? Bool == false)
+        #expect((loginResult["detail"] as? String ?? "").contains("Codex CLI not found"))
+    }
 }

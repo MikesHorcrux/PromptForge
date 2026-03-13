@@ -123,6 +123,8 @@ final class NativeProjectService {
         .settingsGet,
         .settingsUpdate,
         .connectionsRefresh,
+        .connectionsCodexDeviceAuth,
+        .connectionsCodexLoginAPIKey,
         .projectOpen,
         .projectCreate,
         .promptsList,
@@ -225,6 +227,22 @@ final class NativeProjectService {
         case .connectionsRefresh:
             let requestedProviders = params["providers"] as? [String]
             return ["auth": authPayload(refresh: true, providers: requestedProviders)]
+        case .connectionsCodexDeviceAuth:
+            let result = CodexCLIAuthProbe.beginDeviceAuth(binary: codexBinary)
+            return [
+                "instructions": result.instructions,
+                "verification_uri": result.verificationURI ?? NSNull(),
+                "user_code": result.userCode ?? NSNull(),
+                "auth": authPayload(refresh: true, providers: [ProviderID.codex.rawValue]),
+            ]
+        case .connectionsCodexLoginAPIKey:
+            let apiKey = try requiredString("api_key", in: params)
+            let result = CodexCLIAuthProbe.loginWithAPIKey(binary: codexBinary, apiKey: apiKey)
+            return [
+                "success": result.ready,
+                "detail": result.detail,
+                "auth": authPayload(refresh: true, providers: [ProviderID.codex.rawValue]),
+            ]
         case .projectOpen:
             return projectPayload()
         case .projectCreate:
@@ -724,29 +742,97 @@ private enum CodexCLIAuthProbe {
         let source: String
     }
 
+    struct DeviceAuthResult {
+        let verificationURI: String?
+        let userCode: String?
+        let instructions: String
+    }
+
     static func loginStatus(binary: String) -> Status {
         guard let resolved = resolve(binary: binary) else {
             return Status(ready: false, detail: "Codex CLI not found: \(binary)", source: binary)
         }
 
         do {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: resolved)
-            process.arguments = ["login", "status"]
-            let outputPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = outputPipe
-            try process.run()
-            process.waitUntilExit()
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let detail = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try run(binary: resolved, arguments: ["login", "status"])
             return Status(
-                ready: process.terminationStatus == 0,
-                detail: detail.isEmpty ? "Codex CLI found at \(resolved)" : detail,
+                ready: result.terminationStatus == 0,
+                detail: result.output.isEmpty ? "Codex CLI found at \(resolved)" : result.output,
                 source: resolved
             )
         } catch {
             return Status(ready: false, detail: "Codex status unavailable: \(error.localizedDescription)", source: resolved)
+        }
+    }
+
+    static func loginWithAPIKey(binary: String, apiKey: String) -> Status {
+        guard let resolved = resolve(binary: binary) else {
+            return Status(ready: false, detail: "Codex CLI not found: \(binary)", source: binary)
+        }
+        let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedKey.isEmpty else {
+            return Status(ready: false, detail: "OpenAI API key is required for Codex API-key login.", source: resolved)
+        }
+
+        do {
+            let result = try run(
+                binary: resolved,
+                arguments: ["login", "--with-api-key"],
+                stdin: normalizedKey + "\n"
+            )
+            if result.terminationStatus != 0 {
+                return Status(
+                    ready: false,
+                    detail: result.output.isEmpty ? "Codex login failed." : result.output,
+                    source: resolved
+                )
+            }
+            return loginStatus(binary: resolved)
+        } catch {
+            return Status(ready: false, detail: "Codex login failed: \(error.localizedDescription)", source: resolved)
+        }
+    }
+
+    static func beginDeviceAuth(binary: String) -> DeviceAuthResult {
+        guard let resolved = resolve(binary: binary) else {
+            return DeviceAuthResult(
+                verificationURI: nil,
+                userCode: nil,
+                instructions: "Codex CLI not found: \(binary)"
+            )
+        }
+
+        do {
+            let result = try run(binary: resolved, arguments: ["login", "--device-auth"])
+            guard result.terminationStatus == 0 else {
+                return DeviceAuthResult(
+                    verificationURI: nil,
+                    userCode: nil,
+                    instructions: result.output.isEmpty ? "Codex device auth failed." : result.output
+                )
+            }
+
+            let verificationURI = firstMatch(in: result.output, pattern: #"https?://\S+"#)
+            let userCode = firstMatch(in: result.output, pattern: #"\b([A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+)\b"#, captureGroup: 1)
+            if let verificationURI, let userCode {
+                return DeviceAuthResult(
+                    verificationURI: verificationURI,
+                    userCode: userCode,
+                    instructions: "Open \(verificationURI) and enter code \(userCode)."
+                )
+            }
+
+            return DeviceAuthResult(
+                verificationURI: verificationURI,
+                userCode: userCode,
+                instructions: result.output.isEmpty ? "Codex device auth started." : result.output
+            )
+        } catch {
+            return DeviceAuthResult(
+                verificationURI: nil,
+                userCode: nil,
+                instructions: "Could not start Codex device auth: \(error.localizedDescription)"
+            )
         }
     }
 
@@ -766,6 +852,48 @@ private enum CodexCLIAuthProbe {
             }
         }
         return nil
+    }
+
+    private static func run(binary: String, arguments: [String], stdin: String? = nil) throws -> (terminationStatus: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = arguments
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        if let stdin {
+            let inputPipe = Pipe()
+            process.standardInput = inputPipe
+            try process.run()
+            if let data = stdin.data(using: .utf8) {
+                inputPipe.fileHandleForWriting.write(data)
+            }
+            try? inputPipe.fileHandleForWriting.close()
+        } else {
+            try process.run()
+        }
+
+        process.waitUntilExit()
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (process.terminationStatus, output)
+    }
+
+    private static func firstMatch(in text: String, pattern: String, captureGroup: Int = 0) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range), captureGroup < match.numberOfRanges else {
+            return nil
+        }
+        let matchRange = match.range(at: captureGroup)
+        guard let range = Range(matchRange, in: text) else {
+            return nil
+        }
+        return String(text[range])
     }
 }
 
