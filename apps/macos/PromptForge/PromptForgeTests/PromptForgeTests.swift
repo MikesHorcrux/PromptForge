@@ -5,9 +5,11 @@
 //  Created by Mike  Van Amburg on 3/10/26.
 //
 
+import Foundation
 import Testing
 @testable import PromptForge
 
+@MainActor
 struct PromptForgeTests {
     @Test func parsesLaunchContextArguments() async throws {
         let context = LaunchContext(arguments: ["PromptForge", "--project", "/tmp/project", "--engine-root", "/tmp/engine"])

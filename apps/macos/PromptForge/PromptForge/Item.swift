@@ -1,811 +1,7 @@
 import AppKit
 import Combine
 import Foundation
-import Security
 import SwiftUI
-
-struct LaunchContext {
-    let projectPath: String?
-    let engineRoot: String?
-
-    init(arguments: [String]) {
-        self.projectPath = LaunchContext.value(for: "--project", in: arguments)
-        self.engineRoot = LaunchContext.value(for: "--engine-root", in: arguments)
-    }
-
-    private static func value(for flag: String, in arguments: [String]) -> String? {
-        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
-            return nil
-        }
-        return arguments[index + 1]
-    }
-}
-
-enum EngineRuntimeSource: Equatable {
-    case explicit
-    case bundled
-    case saved
-    case projectFallback
-}
-
-struct EngineRuntimeManifest: Decodable, Equatable {
-    let schemaVersion: Int
-    let generatedAt: String?
-    let pythonExecutable: String
-    let helperModule: String
-    let pythonPathEntries: [String]
-    let pathEntries: [String]
-    let codexBinary: String?
-
-    enum CodingKeys: String, CodingKey {
-        case schemaVersion = "schema_version"
-        case generatedAt = "generated_at"
-        case pythonExecutable = "python_executable"
-        case helperModule = "helper_module"
-        case pythonPathEntries = "python_path_entries"
-        case pathEntries = "path_entries"
-        case codexBinary = "codex_binary"
-    }
-}
-
-struct EngineRuntimeConfiguration: Equatable {
-    let rootPath: String
-    let pythonExecutable: String
-    let helperModule: String
-    let pythonPathEntries: [String]
-    let pathEntries: [String]
-    let codexBinary: String?
-}
-
-struct EngineRuntimeSelection: Equatable {
-    let rootPath: String
-    let source: EngineRuntimeSource
-    let configuration: EngineRuntimeConfiguration
-}
-
-enum EngineRuntimeLocator {
-    static let bundledDirectoryName = "engine"
-    static let manifestFileName = "runtime-manifest.json"
-
-    static func bundledEngineRoot(resourceURL: URL?) -> String? {
-        guard let resourceURL else {
-            return nil
-        }
-        let candidate = resourceURL.appendingPathComponent(bundledDirectoryName).path
-        return configuration(for: candidate) != nil ? standardized(candidate) : nil
-    }
-
-    static func isValidEngineRoot(_ root: String) -> Bool {
-        configuration(for: root) != nil
-    }
-
-    static func resolve(
-        projectURL: URL,
-        explicitEngineRoot: String?,
-        savedEngineRoot: String?,
-        bundleResourceURL: URL? = Bundle.main.resourceURL
-    ) -> EngineRuntimeSelection? {
-        let candidates: [(String?, EngineRuntimeSource)] = [
-            (explicitEngineRoot, .explicit),
-            (bundledEngineRoot(resourceURL: bundleResourceURL), .bundled),
-            (savedEngineRoot, .saved),
-        ]
-        var seen = Set<String>()
-        for (candidate, source) in candidates {
-            guard let candidate, !candidate.isEmpty else {
-                continue
-            }
-            let standardizedCandidate = standardized(candidate)
-            if !seen.insert(standardizedCandidate).inserted {
-                continue
-            }
-            if let configuration = configuration(for: standardizedCandidate) {
-                return EngineRuntimeSelection(rootPath: standardizedCandidate, source: source, configuration: configuration)
-            }
-        }
-#if DEBUG
-        let projectCandidate = standardized(projectURL.path)
-        if seen.insert(projectCandidate).inserted, let configuration = configuration(for: projectCandidate) {
-            return EngineRuntimeSelection(rootPath: projectCandidate, source: .projectFallback, configuration: configuration)
-        }
-#endif
-        return nil
-    }
-
-    static var missingRuntimeMessage: String {
-        "PromptForge could not find a usable bundled runtime. Rebuild the app so it includes the packaged engine, or pass a valid --engine-root in a local debug run."
-    }
-
-    private static func standardized(_ path: String) -> String {
-        URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
-    }
-
-    static func configuration(for root: String) -> EngineRuntimeConfiguration? {
-        let standardizedRoot = standardized(root)
-        let rootURL = URL(fileURLWithPath: standardizedRoot)
-        let manifestURL = rootURL.appendingPathComponent(manifestFileName)
-
-        if
-            let data = try? Data(contentsOf: manifestURL),
-            let manifest = try? JSONDecoder().decode(EngineRuntimeManifest.self, from: data)
-        {
-            let pythonExecutable = rootURL.appendingPathComponent(manifest.pythonExecutable).path
-            guard FileManager.default.isExecutableFile(atPath: pythonExecutable) else {
-                return nil
-            }
-
-            let pythonPathEntries = manifest.pythonPathEntries.map { rootURL.appendingPathComponent($0).path }
-            guard !pythonPathEntries.isEmpty else {
-                return nil
-            }
-
-            let pathEntries = manifest.pathEntries.map { rootURL.appendingPathComponent($0).path }
-            let codexBinary = manifest.codexBinary.map { rootURL.appendingPathComponent($0).path }
-
-            if let codexBinary, !FileManager.default.isExecutableFile(atPath: codexBinary) {
-                return nil
-            }
-
-            return EngineRuntimeConfiguration(
-                rootPath: standardizedRoot,
-                pythonExecutable: pythonExecutable,
-                helperModule: manifest.helperModule,
-                pythonPathEntries: pythonPathEntries,
-                pathEntries: pathEntries,
-                codexBinary: codexBinary
-            )
-        }
-
-        let pythonExecutable = rootURL.appendingPathComponent(".venv/bin/python").path
-        let helperModule = rootURL.appendingPathComponent("src/promptforge/helper/server.py").path
-        guard
-            FileManager.default.isExecutableFile(atPath: pythonExecutable),
-            FileManager.default.fileExists(atPath: helperModule)
-        else {
-            return nil
-        }
-
-        return EngineRuntimeConfiguration(
-            rootPath: standardizedRoot,
-            pythonExecutable: pythonExecutable,
-            helperModule: "promptforge.helper.server",
-            pythonPathEntries: [rootURL.appendingPathComponent("src").path],
-            pathEntries: [],
-            codexBinary: nil
-        )
-    }
-}
-
-struct PromptSummaryModel: Identifiable, Equatable {
-    let version: String
-    let name: String
-    let description: String
-
-    var id: String { version }
-}
-
-struct CaseIssue: Identifiable, Equatable {
-    let caseID: String
-    let score: String
-    let hardFailRate: String
-    let reasons: String
-    let summary: String
-
-    var id: String { caseID + score + hardFailRate }
-}
-
-struct PreparedProposal: Identifiable, Equatable {
-    let proposalID: String
-    let summary: String
-    let diffPreview: String
-    let changedFiles: [String]
-
-    var id: String { proposalID }
-}
-
-enum TranscriptRole {
-    case system
-    case user
-    case agent
-    case result
-    case warning
-
-    var tint: Color {
-        switch self {
-        case .system:
-            return .cyan
-        case .user:
-            return .white
-        case .agent:
-            return .orange
-        case .result:
-            return .green
-        case .warning:
-            return .red
-        }
-    }
-
-    var background: Color {
-        switch self {
-        case .system:
-            return .blue.opacity(0.10)
-        case .user:
-            return .white.opacity(0.05)
-        case .agent:
-            return .orange.opacity(0.10)
-        case .result:
-            return .green.opacity(0.10)
-        case .warning:
-            return .red.opacity(0.10)
-        }
-    }
-
-    var border: Color {
-        switch self {
-        case .system:
-            return .blue.opacity(0.25)
-        case .user:
-            return .white.opacity(0.08)
-        case .agent:
-            return .orange.opacity(0.30)
-        case .result:
-            return .green.opacity(0.30)
-        case .warning:
-            return .red.opacity(0.30)
-        }
-    }
-}
-
-struct TranscriptEntry: Identifiable, Equatable {
-    let id = UUID()
-    let role: TranscriptRole
-    let title: String
-    let body: String
-}
-
-struct HelperEvent: Equatable {
-    let sequence: Int
-    let type: String
-    let timestamp: String
-    let payload: [String: String]
-}
-
-struct ProviderConnectionStatus: Identifiable, Equatable {
-    let id: String
-    let label: String
-    let ready: Bool
-    let detail: String
-    let source: String
-}
-
-struct AppSettingsDraft: Equatable {
-    var projectName: String = "PromptForge Project"
-    var provider: String = "openai"
-    var judgeProvider: String = "openai"
-    var generationModel: String = "gpt-5.4"
-    var judgeModel: String = "gpt-5-mini"
-    var agentModel: String = "gpt-5-mini"
-    var quickBenchmarkDataset: String = "datasets/core.jsonl"
-    var fullEvaluationDataset: String = "datasets/core.jsonl"
-    var quickBenchmarkRepeats: Int = 1
-    var fullEvaluationRepeats: Int = 1
-    var builderPermissionMode: String = "proposal_only"
-    var builderResearchPolicy: String = "prompt_only"
-}
-
-enum PromptWorkspaceMode: String, CaseIterable, Identifiable {
-    case studio
-    case tests
-    case review
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .studio:
-            return "Prompt"
-        case .tests:
-            return "Tests"
-        case .review:
-            return "Review"
-        }
-    }
-}
-
-struct PromptWorkspaceDraft: Equatable {
-    var purpose: String = ""
-    var expectedBehavior: String = ""
-    var successCriteria: String = ""
-    var baselinePromptRef: String = ""
-    var primaryScenarioSuites: [String] = []
-    var owner: String = ""
-    var audience: String = ""
-    var releaseNotes: String = ""
-    var builderAgentModel: String = "gpt-5-mini"
-    var builderPermissionMode: String = "proposal_only"
-    var researchPolicy: String = "prompt_only"
-    var promptBlocks: [PromptBlockModel] = []
-    var systemPrompt: String = ""
-    var userTemplate: String = ""
-}
-
-struct PromptBlockModel: Identifiable, Equatable {
-    let blockID: String
-    var title: String
-    var body: String
-    var target: String
-    var enabled: Bool
-
-    var id: String { blockID }
-}
-
-struct ScenarioAssertionModel: Identifiable, Equatable {
-    let assertionID: String
-    var label: String
-    var kind: String
-    var expectedText: String
-    var threshold: Double?
-    var trait: String
-    var severity: String
-
-    var id: String { assertionID }
-}
-
-struct ScenarioCaseModel: Identifiable, Equatable {
-    let caseID: String
-    var title: String
-    var inputJSON: String
-    var contextText: String
-    var tags: [String]
-    var notes: String
-    var assertions: [ScenarioAssertionModel]
-
-    var id: String { caseID }
-}
-
-struct ScenarioSuiteModel: Identifiable, Equatable {
-    let suiteID: String
-    var name: String
-    var description: String
-    var linkedPrompts: [String]
-    var cases: [ScenarioCaseModel]
-    var createdAt: String
-    var updatedAt: String
-
-    var id: String { suiteID }
-}
-
-struct PlaygroundSampleModel: Identifiable, Equatable {
-    let sampleID: String
-    let outputText: String
-    let latencyMS: Int
-    let totalTokens: Int
-
-    var id: String { sampleID }
-}
-
-struct PlaygroundRunModel: Identifiable, Equatable {
-    let runID: String
-    let createdAt: String
-    let inputJSON: String
-    let contextText: String
-    let candidateSamples: [PlaygroundSampleModel]
-    let baselineSamples: [PlaygroundSampleModel]
-
-    var id: String { runID }
-}
-
-struct BuilderActionModel: Identifiable, Equatable {
-    let actionID: String
-    let kind: String
-    let title: String
-    let details: String
-    let files: [String]
-    let tools: [String]
-    let usedResearch: Bool
-    let permissionMode: String
-    let createdAt: String
-
-    var id: String { actionID }
-}
-
-struct ReviewAssertionModel: Identifiable, Equatable {
-    let assertionID: String
-    let label: String
-    let status: String
-    let detail: String
-
-    var id: String { assertionID }
-}
-
-struct ReviewCaseModel: Identifiable, Equatable {
-    let caseID: String
-    let title: String
-    let candidateScore: Double?
-    let baselineScore: Double?
-    let regression: Bool
-    let flaky: Bool
-    let candidateOutput: String
-    let baselineOutput: String
-    let diffPreview: String
-    let hardFailReasons: [String]
-    let assertions: [ReviewAssertionModel]
-    let likelyChangedFiles: [String]
-
-    var id: String { caseID }
-}
-
-struct ReviewSummaryModel: Identifiable, Equatable {
-    let reviewID: String
-    let suiteID: String
-    let suiteName: String
-    let createdAt: String
-    let revisionID: String
-    let scoreDelta: Double?
-    let passRateDelta: Double?
-    let cases: [ReviewCaseModel]
-
-    var id: String { reviewID }
-}
-
-struct DecisionRecordModel: Identifiable, Equatable {
-    let decisionID: String
-    let status: String
-    let summary: String
-    let rationale: String
-    let createdAt: String
-
-    var id: String { decisionID }
-}
-
-enum KeychainSecretStore {
-    private static let service = "com.lunarmothstudios.PromptForge"
-    private static let secretKeys = ["OPENAI_API_KEY", "OPENROUTER_API_KEY"]
-
-    static func hydrate(environment: inout [String: String]) {
-        for key in secretKeys {
-            if let stored = read(key: key), !stored.isEmpty {
-                environment[key] = stored
-                continue
-            }
-            guard let inherited = environment[key], !inherited.isEmpty else {
-                continue
-            }
-            _ = write(key: key, value: inherited)
-        }
-    }
-
-    static func has(key: String) -> Bool {
-        guard let value = read(key: key) else {
-            return false
-        }
-        return !value.isEmpty
-    }
-
-    static func read(key: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    @discardableResult
-    static func write(key: String, value: String) -> Bool {
-        let payload = Data(value.utf8)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-        ]
-        let attributes: [String: Any] = [
-            kSecValueData as String: payload,
-        ]
-        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess {
-            return true
-        }
-        if updateStatus != errSecItemNotFound {
-            return false
-        }
-        var insert = query
-        insert[kSecValueData as String] = payload
-        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
-    }
-
-    @discardableResult
-    static func delete(key: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
-    }
-}
-
-enum SecurityScopedProjectStore {
-    private static let bookmarkKey = "PromptForgeProjectBookmark"
-    private static let pathKey = "PromptForgeProjectPath"
-
-    static func save(url: URL) {
-        guard let bookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) else {
-            UserDefaults.standard.set(url.path, forKey: pathKey)
-            return
-        }
-        UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
-        UserDefaults.standard.set(url.path, forKey: pathKey)
-    }
-
-    static func resolve() -> URL? {
-        guard let bookmark = UserDefaults.standard.data(forKey: bookmarkKey) else {
-            return nil
-        }
-        var isStale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: bookmark,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ) else {
-            return nil
-        }
-        if isStale {
-            save(url: url)
-        }
-        return url
-    }
-
-    static func savedPath() -> String? {
-        UserDefaults.standard.string(forKey: pathKey)
-    }
-}
-
-enum HelperClientError: Error, LocalizedError {
-    case invalidResponse
-    case helperLaunchFailed(String)
-    case socketConnectionFailed(String)
-    case requestRejected(String)
-    case missingField(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            return "The helper returned an invalid response."
-        case .helperLaunchFailed(let detail):
-            return detail
-        case .socketConnectionFailed(let detail):
-            return detail
-        case .requestRejected(let detail):
-            return detail
-        case .missingField(let detail):
-            return detail
-        }
-    }
-}
-
-final class PromptForgeHelperClient {
-    private let projectRoot: String
-    private let engineRoot: String
-    private let socketPath: String
-    private let token: String
-    private var process: Process?
-
-    init(projectRoot: String, engineRoot: String) throws {
-        self.projectRoot = projectRoot
-        self.engineRoot = engineRoot
-        self.socketPath = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("promptforge-\(UUID().uuidString).sock")
-            .path
-        self.token = UUID().uuidString
-        try launchHelper()
-    }
-
-    deinit {
-        shutdown()
-    }
-
-    func shutdown() {
-        process?.terminate()
-        process = nil
-        try? FileManager.default.removeItem(atPath: socketPath)
-    }
-
-    nonisolated func send(method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
-        try await Task.detached(priority: .userInitiated) {
-            try self.sendSync(method: method, params: params)
-        }.value
-    }
-
-    nonisolated func subscribe(after cursor: Int, timeoutSeconds: Double = 15) async throws -> (cursor: Int, events: [HelperEvent]) {
-        let result = try await send(
-            method: "events.subscribe",
-            params: [
-                "after": cursor,
-                "timeout_seconds": timeoutSeconds,
-                "limit": 50,
-            ]
-        )
-        let nextCursor = result["cursor"] as? Int ?? cursor
-        let eventObjects = result["events"] as? [[String: Any]] ?? []
-        let events = eventObjects.compactMap(Self.parseEvent(_:))
-        return (nextCursor, events)
-    }
-
-    private func launchHelper() throws {
-        guard let runtimeConfiguration = EngineRuntimeLocator.configuration(for: engineRoot) else {
-            throw HelperClientError.helperLaunchFailed(EngineRuntimeLocator.missingRuntimeMessage)
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: runtimeConfiguration.pythonExecutable)
-        process.arguments = [
-            "-m",
-            runtimeConfiguration.helperModule,
-            "--project",
-            projectRoot,
-            "--socket",
-            socketPath,
-            "--token",
-            token,
-        ]
-
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-        process.standardOutput = Pipe()
-
-        var environment = ProcessInfo.processInfo.environment
-        let pythonPath = runtimeConfiguration.pythonPathEntries.joined(separator: ":")
-        if !pythonPath.isEmpty {
-            if let existing = environment["PYTHONPATH"], !existing.isEmpty {
-                environment["PYTHONPATH"] = "\(pythonPath):\(existing)"
-            } else {
-                environment["PYTHONPATH"] = pythonPath
-            }
-        }
-        let bundledPath = runtimeConfiguration.pathEntries.joined(separator: ":")
-        if !bundledPath.isEmpty {
-            if let existing = environment["PATH"], !existing.isEmpty {
-                environment["PATH"] = "\(bundledPath):\(existing)"
-            } else {
-                environment["PATH"] = bundledPath
-            }
-        }
-        environment["PF_ENGINE_ROOT"] = engineRoot
-        if let codexBinary = runtimeConfiguration.codexBinary {
-            environment["PF_CODEX_BIN"] = codexBinary
-        }
-        KeychainSecretStore.hydrate(environment: &environment)
-        process.environment = environment
-
-        do {
-            try process.run()
-        } catch {
-            throw HelperClientError.helperLaunchFailed("Failed to launch the PromptForge helper: \(error.localizedDescription)")
-        }
-
-        self.process = process
-
-        for _ in 0 ..< 50 {
-            if FileManager.default.fileExists(atPath: socketPath) {
-                return
-            }
-            if !process.isRunning {
-                let detail = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                throw HelperClientError.helperLaunchFailed("The PromptForge helper exited early.\n\(detail)")
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        let detail = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        throw HelperClientError.helperLaunchFailed("The PromptForge helper did not start in time.\n\(detail)")
-    }
-
-    private nonisolated func sendSync(method: String, params: [String: Any]) throws -> [String: Any] {
-        let handle = try makeSocketHandle()
-        defer {
-            try? handle.close()
-        }
-
-        let envelope: [String: Any] = [
-            "id": UUID().uuidString,
-            "token": token,
-            "method": method,
-            "params": params,
-        ]
-        let payload = try JSONSerialization.data(withJSONObject: envelope, options: [])
-        handle.write(payload)
-        handle.write(Data([0x0A]))
-
-        var responseData = Data()
-        while true {
-            guard let chunk = try handle.read(upToCount: 1), !chunk.isEmpty else {
-                break
-            }
-            if chunk.first == 0x0A {
-                break
-            }
-            responseData.append(chunk)
-        }
-
-        guard
-            let object = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-            let ok = object["ok"] as? Bool
-        else {
-            throw HelperClientError.invalidResponse
-        }
-        if ok {
-            return object["result"] as? [String: Any] ?? [:]
-        }
-        let errorText = object["error"] as? String ?? "Unknown helper failure."
-        throw HelperClientError.requestRejected(errorText)
-    }
-
-    private nonisolated func makeSocketHandle() throws -> FileHandle {
-        let socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard socketFD >= 0 else {
-            throw HelperClientError.socketConnectionFailed("Could not create a Unix socket.")
-        }
-
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
-        let pathBytes = socketPath.utf8CString
-        guard pathBytes.count <= maxLength else {
-            close(socketFD)
-            throw HelperClientError.socketConnectionFailed("The Unix socket path is too long.")
-        }
-
-        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-            let rawPointer = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self)
-            rawPointer.initialize(repeating: 0, count: maxLength)
-            pathBytes.withUnsafeBufferPointer { buffer in
-                guard let baseAddress = buffer.baseAddress else { return }
-                rawPointer.update(from: baseAddress, count: buffer.count)
-            }
-        }
-
-        var mutableAddress = address
-        let addressLength = socklen_t(MemoryLayout.size(ofValue: mutableAddress))
-        let connectResult = withUnsafePointer(to: &mutableAddress) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.connect(
-                    socketFD,
-                    sockaddrPointer,
-                    addressLength
-                )
-            }
-        }
-        guard connectResult == 0 else {
-            close(socketFD)
-            throw HelperClientError.socketConnectionFailed("Could not connect to the PromptForge helper.")
-        }
-        return FileHandle(fileDescriptor: socketFD, closeOnDealloc: true)
-    }
-
-    private nonisolated static func parseEvent(_ object: [String: Any]) -> HelperEvent? {
-        guard
-            let sequence = object["sequence"] as? Int,
-            let type = object["type"] as? String,
-            let timestamp = object["timestamp"] as? String
-        else {
-            return nil
-        }
-        let payloadObject = object["payload"] as? [String: Any] ?? [:]
-        let payload = payloadObject.reduce(into: [String: String]()) { partialResult, item in
-            partialResult[item.key] = String(describing: item.value)
-        }
-        return HelperEvent(sequence: sequence, type: type, timestamp: timestamp, payload: payload)
-    }
-}
 
 @MainActor
 final class PromptForgeAppModel: ObservableObject {
@@ -859,7 +55,7 @@ final class PromptForgeAppModel: ObservableObject {
     @Published var playgroundSampleCount: Int = 1
     @Published var scenarioNotice: String?
 
-    private var helper: PromptForgeHelperClient?
+    private var helper: (any PromptForgeAgentTransport)?
     private var engineRoot: String?
     private var eventTask: Task<Void, Never>?
     private var eventCursor: Int = 0
@@ -1015,7 +211,7 @@ final class PromptForgeAppModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a prompt pack folder to import."
+        panel.message = "Choose a prompt folder to import."
         if panel.runModal() == .OK, let url = panel.url {
             Task {
                 await importPromptPack(from: url)
@@ -1025,7 +221,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     private func importPromptPack(from url: URL) async {
         guard let helper else {
-            appendTranscript(.warning, "Import prompt", "Open a project before importing a prompt pack.")
+            appendTranscript(.warning, "Import prompt", "Open a project before importing a prompt.")
             return
         }
         do {
@@ -1085,7 +281,7 @@ final class PromptForgeAppModel: ObservableObject {
 
     func runQuickBenchmark() {
         Task {
-            await runHelperMethod("bench.run_quick")
+            await runHelperMethod(PromptForgeServiceMethod.benchRunQuick.rawValue)
         }
     }
 
@@ -1139,7 +335,10 @@ final class PromptForgeAppModel: ObservableObject {
             return
         }
         do {
-            helper = try PromptForgeHelperClient(projectRoot: path, engineRoot: resolvedEngineRuntime.rootPath)
+            helper = try PromptForgeTransportFactory.makeTransport(
+                projectRoot: path,
+                runtimeSelection: resolvedEngineRuntime
+            )
             self.engineRoot = resolvedEngineRuntime.rootPath
             UserDefaults.standard.set(path, forKey: "PromptForgeProjectPath")
             UserDefaults.standard.set(resolvedEngineRuntime.rootPath, forKey: "PromptForgeEngineRoot")
@@ -1147,6 +346,7 @@ final class PromptForgeAppModel: ObservableObject {
             selectedWorkspaceMode = .studio
             transcript.removeAll()
             appendTranscript(.system, "Project", "Opened \(path)")
+            appendTranscript(.system, "Runtime", "Using \(helper?.backend.displayName ?? "local helper").")
             _ = try await helper?.send(method: "project.open") ?? [:]
             startEventStream()
             try await refreshStatus()
@@ -1154,7 +354,7 @@ final class PromptForgeAppModel: ObservableObject {
             if let prompt = selectedPrompt ?? prompts.first?.version {
                 await openPrompt(prompt, announce: false)
             } else {
-                appendTranscript(.system, "Project", "No prompt packs found. Create or import a prompt to get started.")
+                appendTranscript(.system, "Project", "No prompts found. Create or import a prompt to get started.")
             }
             if !UserDefaults.standard.bool(forKey: "PromptForgeCompletedOnboarding") {
                 await loadSettings(openingMode: "onboarding")
@@ -1490,11 +690,11 @@ final class PromptForgeAppModel: ObservableObject {
         case "eval.run_full":
             return "Running full evaluation."
         case "prompts.create":
-            return "Creating prompt pack."
+            return "Creating prompt."
         case "prompts.clone":
-            return "Cloning prompt pack."
+            return "Cloning prompt."
         case "prompts.export":
-            return "Exporting prompt pack."
+            return "Exporting prompt."
         case "revisions.restore":
             return "Restoring prompt revision."
         default:
@@ -1517,11 +717,11 @@ final class PromptForgeAppModel: ObservableObject {
         case "eval.run_full":
             return "Full evaluation finished."
         case "prompts.create":
-            return "Prompt pack created."
+            return "Prompt created."
         case "prompts.clone":
-            return "Prompt pack cloned."
+            return "Prompt cloned."
         case "prompts.export":
-            return "Prompt pack exported."
+            return "Prompt exported."
         case "revisions.restore":
             return "Prompt revision restored."
         default:
@@ -1578,7 +778,7 @@ final class PromptForgeAppModel: ObservableObject {
             _ = await persistPromptWorkspace()
         case "/prompts":
             let list = prompts.map { "\($0.version)  \( $0.name )" }.joined(separator: "\n")
-            appendTranscript(.system, "Prompt packs", list.isEmpty ? "No prompt packs in this project." : list)
+            appendTranscript(.system, "Prompts", list.isEmpty ? "No prompts in this project." : list)
         case "/open":
             guard parts.count >= 2 else {
                 appendTranscript(.warning, "Command", "Usage: /open <name>")
@@ -1613,7 +813,7 @@ final class PromptForgeAppModel: ObservableObject {
         case "/template":
             appendTranscript(.system, "User template", promptDraft.userTemplate)
         case "/bench":
-            await runHelperMethod("bench.run_quick")
+            await runHelperMethod(PromptForgeServiceMethod.benchRunQuick.rawValue)
         case "/full":
             await runHelperMethod("eval.run_full")
         case "/diff":
@@ -1797,7 +997,7 @@ final class PromptForgeAppModel: ObservableObject {
             return
         }
         do {
-            let label = method == "bench.run_quick" ? "Running quick check" : "Running evaluation"
+            let label = method == PromptForgeServiceMethod.benchRunQuick.rawValue ? "Running quick check" : "Running evaluation"
             try await withBusyState(label) {
                 let result = try await helper.send(method: method, params: ["prompt": prompt])
                 applyResultPayload(result)
@@ -1849,7 +1049,7 @@ final class PromptForgeAppModel: ObservableObject {
             )
             let exportedPath = result["exported"] as? String ?? name
             try await refreshPrompts()
-            appendTranscript(.result, "Exported", "Saved prompt pack to \(exportedPath)")
+            appendTranscript(.result, "Exported", "Saved prompt to \(exportedPath)")
         } catch {
             appendTranscript(.warning, "Export", error.localizedDescription)
         }
